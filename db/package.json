@@ -1,0 +1,13 @@
+{
+  "name": "@cryptoledger/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "migrate": "node -e \"console.log('placeholder: US-002 will implement')\"",
+    "seed": "node -e \"console.log('placeholder: US-002 will implement')\""
+  },
+  "devDependencies": {
+    "node-pg-migrate": "^7.0.0"
+  }
+}

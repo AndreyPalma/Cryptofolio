@@ -1,0 +1,8 @@
+docs/
+dist/
+**/dist/
+node_modules/
+coverage/
+package-lock.json
+openspec/config.yaml
+openspec/changes/

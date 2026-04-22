@@ -1,0 +1,47 @@
+# render.yaml — Cryptofolio deployment contract
+# Declares build/start commands for Render.com services.
+# Does NOT provision infrastructure — fill in env vars manually in the Render dashboard.
+
+services:
+  - type: web
+    name: cryptofolio-backend
+    runtime: node
+    region: oregon
+    plan: free
+    buildCommand: npm ci && npm -w apps/backend run build
+    startCommand: node apps/backend/dist/index.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: ETHERSCAN_API_KEY
+        sync: false
+      - key: BSCTRACE_API_KEY
+        sync: false
+      - key: BINANCE_API_KEY
+        sync: false
+      - key: BINANCE_SECRET_KEY
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: APP_PASSWORD
+        sync: false
+
+  - type: web
+    name: cryptofolio-frontend
+    runtime: static
+    buildCommand: npm ci && npm -w apps/frontend run build
+    # Render static service key: `staticPublishPath` is correct for `type: web` + `runtime: static`.
+    # Some Render docs show `publishPath` — if deploy fails, try that key. Not blocking scaffold.
+    staticPublishPath: apps/frontend/dist
+    envVars:
+      - key: VITE_API_URL
+        sync: false

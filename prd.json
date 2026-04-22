@@ -1,0 +1,603 @@
+{
+  "version": 5,
+  "project": "CryptoLedger — Personal Portfolio Tracking Platform",
+  "overview": "Plataforma personal híbrida para trazabilidad absoluta de activos digitales en tres fuentes: wallets on-chain (SafePal/Ledger) en Ethereum y BSC, y cuenta Binance Spot via API key personal read-only. Motor contable WAC puro con gestión de ciclos de posición. Dashboard agregado multi-fuente con JWT auth. Version 5: todos los fixes de contabilidad CEX aplicados — Convert descompuesto como SWAP_OUT/SWAP_IN, retiros/depósitos Binance trackeados con tx_hash como puente cross-fuente, UNIQUE constraint corregido para Convert, variable BINANCE_SECRET_KEY corregida, dust conversion documentado como nonGoal.",
+  "openQuestions": [],
+  "resolvedDecisions": [
+    {
+      "question": "¿Cómo se manejan las ventas parciales contablemente?",
+      "decision": "WAC puro",
+      "implication": "El WAC solo se recalcula cuando se agrega un BUY o SWAP_IN. Un SELL parcial reduce el balance pero no modifica el WAC. El P&L por lote en la tabla de transacciones es informativo (no contable). Implemented in: PositionEngine.recalculateWAC(), llamado únicamente en eventos BUY/SWAP_IN/TRANSFER_IN."
+    },
+    {
+      "question": "¿Soporte de SWAP en V1?",
+      "decision": "On-chain: descomposición automática. CEX: Binance Convert descompuesto via endpoint dedicado.",
+      "implication": "On-chain: SWAPs via routers Uniswap/PancakeSwap detectados por ABI decoding → SWAP_OUT + SWAP_IN con precio DefiLlama. CEX: Binance Convert usa GET /sapi/v1/convert/tradeFlow (ventana 30 días) → también se descompone en SWAP_OUT (fromAsset) + SWAP_IN (toAsset) con related_tx_id. Idempotencia via UNIQUE(cex_trade_id, tx_log_index): SWAP_OUT tx_log_index=0, SWAP_IN tx_log_index=1. Ambos mecanismos usan el mismo PositionEngine. Implemented in: OnChainSyncService.classifyAndDecomposeTransaction() y BinanceSyncService.syncConvert()."
+    },
+    {
+      "question": "¿TRANSFER_IN desde wallet propia?",
+      "decision": "Heredar WAC de la wallet origen — on-chain por address, CEX por tx_hash coincidente",
+      "implication": "Al detectar TRANSFER_IN on-chain: (1) Busca from_address en wallets ON_CHAIN registradas → si existe: hereda WAC, cost_source='INHERITED'. (2) Si no existe como ON_CHAIN: busca en transactions un TRANSFER_OUT con source='BINANCE' y tx_hash igual al tx_hash del TRANSFER_IN (Binance guarda el txId on-chain en withdraw-history) → si existe: hereda WAC de esa posición CEX, cost_source='INHERITED'. (3) Si ninguna coincide: cost_source='MANUAL', UI solicita precio. Implemented in: OnChainSyncService.resolveTransferCost()."
+    },
+    {
+      "question": "¿Retiros y depósitos de Binance se registran?",
+      "decision": "Sí — via wallet.withdraw-history y wallet.deposit-history con ventana 90 días",
+      "implication": "BinanceSyncService.syncWithdrawals(): GET /sapi/v1/capital/withdraw/history → por cada retiro completado: crea TRANSFER_OUT en posición CEX con tx_hash = txId del retiro (hash on-chain). Esto permite que on-chain sync herede el WAC al detectar el TRANSFER_IN correspondiente. BinanceSyncService.syncDeposits(): GET /sapi/v1/capital/deposit/hisrec → por cada depósito completado: crea TRANSFER_IN en posición CEX. Si el depósito viene de una wallet ON_CHAIN registrada (matched por address), se hereda WAC y cost_source='INHERITED'; si no, cost_source='MANUAL'. Implementación idempotente: cex_trade_id = withdrawal/deposit id de Binance."
+    },
+    {
+      "question": "¿Autenticación en V1?",
+      "decision": "JWT con pantalla de login minimalista",
+      "implication": "Ruta /login con form de password único (bcrypt factor 12 en tabla users, 1 registro). Emite JWT HS256 24h en cookie httpOnly + Secure + SameSite=Strict. Middleware protege todas las rutas /api/*. Frontend guarda JWT en memory (no localStorage)."
+    },
+    {
+      "question": "¿Cuál es el modo principal del dashboard?",
+      "decision": "Vista agregada multi-fuente con separación CEX/on-chain",
+      "implication": "Tokens on-chain del mismo tipo agrupados por (contract_address, network) entre todas las ON_CHAIN wallets → una fila. Tokens CEX_BINANCE siempre en filas separadas (WAC independiente). Expandible muestra desglose por wallet/fuente. PortfolioService.aggregateByToken()."
+    },
+    {
+      "question": "¿BSCScan API para transacciones de BSC?",
+      "decision": "BSCTrace via MegaNode — reemplaza BSCScan deprecado el 18-dic-2025",
+      "implication": "Etherscan API V2 no ofrece free tier para BNB Chain. BSCTrace provee free tier + endpoint nr_getAssetTransfers equivalente. Variable de entorno: BSCTRACE_API_KEY. Implemented in: BSCTraceSyncService."
+    },
+    {
+      "question": "¿Cómo se identifica un token CEX vs on-chain?",
+      "decision": "Namespacing por network: tokens CEX usan network='CEX_BINANCE', contract_address=symbol en minúsculas",
+      "implication": "ETH on-chain (network='ETH') y ETH Binance (network='CEX_BINANCE', contract_address='eth') son entidades distintas con WAC independiente. No se mezclan en el motor ni en el dashboard. El campo binance_symbol guarda el símbolo base para consultas de precio (ej: 'ETH' → GET /api/v3/ticker/price?symbol=ETHUSDT)."
+    },
+    {
+      "question": "¿Paginación del historial de trades Binance?",
+      "decision": "Iteración por símbolo con ventanas de 24h + cursor por símbolo en wallet_sync_cursors",
+      "implication": "myTrades requiere symbol específico, ventana max 24h. BinanceSyncService itera por símbolo desde last_synced_at hasta now en ventanas de 24h. Convert usa ventanas de 30 días. Withdrawals/deposits usan ventanas de 90 días. Todos los cursores guardados en wallet_sync_cursors por (wallet_id, symbol/operation)."
+    },
+    {
+      "question": "¿Paginación del historial on-chain Etherscan free tier?",
+      "decision": "Paginación delta por bloques, batch 1000 registros",
+      "implication": "Si result.length === 1000: hacer siguiente query con startblock = last_block_in_result - 1 hasta result.length < 1000. Garantiza sync completo para wallets con historial extenso. Implemented in: OnChainSyncService.fetchAllTransactions()."
+    },
+    {
+      "question": "¿Nombre correcto de la variable de entorno para Binance API Secret?",
+      "decision": "BINANCE_SECRET_KEY — según spec oficial de binance-cli (auth.md)",
+      "implication": "La skill oficial de Binance define BINANCE_API_KEY + BINANCE_SECRET_KEY (no BINANCE_API_SECRET). Este nombre aplica en: .env.example, tabla api_credentials enum, US-001, US-012 Settings UI, y la documentación de integración. Error corregido desde v4."
+    },
+    {
+      "question": "¿Qué constraint de unicidad aplica a transacciones CEX para Convert?",
+      "decision": "UNIQUE(cex_trade_id, tx_log_index) WHERE cex_trade_id IS NOT NULL",
+      "implication": "Un Convert genera dos registros (SWAP_OUT + SWAP_IN) con el mismo orderId de Binance. La constraint anterior UNIQUE(cex_trade_id) bloqueaba la inserción del segundo registro. Fix: constraint compuesta (cex_trade_id, tx_log_index) donde tx_log_index=0 para SWAP_OUT y tx_log_index=1 para SWAP_IN. Trades normales (myTrades) usan tx_log_index=NULL. La constraint se aplica solo cuando cex_trade_id IS NOT NULL (partial index)."
+    }
+  ],
+  "goals": [
+    "Calcular P&L por posición activa con WAC puro desde el primer BUY del ciclo actual",
+    "Soportar DCA: múltiples compras con recálculo automático del WAC (solo en BUY/SWAP_IN events)",
+    "Ciclos de posición: al llegar a balance=0, archivar posición y abrir nueva en el próximo BUY",
+    "Mostrar desglose por transacción: precio histórico, valor actual, P&L por lote (informativo)",
+    "Sincronizar wallets on-chain (SafePal/Ledger) via Etherscan API v2 (ETH) y BSCTrace/MegaNode (BSC)",
+    "Sincronizar cuenta Binance Spot: trades (myTrades), Converts (convert/tradeFlow), retiros y depósitos (capital/withdraw/history + capital/deposit/hisrec)",
+    "Descomponer SWAPs on-chain y Binance Convert automáticamente en SWAP_OUT + SWAP_IN",
+    "Heredar WAC en TRANSFER_IN: desde wallets on-chain por address, desde Binance CEX por tx_hash del retiro",
+    "Dashboard agregado multi-fuente: tokens on-chain agrupados entre wallets, tokens CEX separados por integridad contable",
+    "JWT auth con pantalla de login minimalista (single-user)"
+  ],
+  "nonGoals": [
+    "No es una plataforma de trading ni ejecución de órdenes",
+    "No gestiona claves privadas de wallets",
+    "No soporta redes on-chain distintas a Ethereum y BSC en V1",
+    "No incluye reportes fiscales ni cálculo de impuestos",
+    "No tiene autenticación multiusuario — single-user únicamente",
+    "No cubre tokens LP ni posiciones en protocolos DeFi complejos",
+    "No implementa método FIFO — WAC puro en toda la plataforma",
+    "No soporta otras cuentas CEX además de Binance en V1",
+    "No agrega WAC de un mismo activo entre Binance CEX y wallets on-chain (WAC siempre por fuente)",
+    "No registra conversión de dust en Binance (dustlog/dust-convert) en V1 — los balances mínimos convertidos a BNB quedan fuera del tracking y se documentan como limitación conocida"
+  ],
+  "successMetrics": [
+    "WAC recalcula correctamente en <200ms después de cualquier BUY (on-chain o CEX)",
+    "SWAP on-chain detectado se descompone en 2 registros con precios correctos de DefiLlama",
+    "Binance Convert sincronizado se descompone en SWAP_OUT + SWAP_IN con price_usd calculado del ratio",
+    "Retiro de Binance → SafePal: TRANSFER_OUT CEX creado con tx_hash = txId, TRANSFER_IN on-chain hereda WAC automáticamente",
+    "Depósito de SafePal → Binance: TRANSFER_IN CEX creado; hereda WAC si la wallet origen está registrada",
+    "Binance sync importa trades históricos con WAC correcto por símbolo",
+    "Dashboard agrega correctamente el mismo token de múltiples wallets ON-CHAIN en una sola fila",
+    "Dashboard muestra tokens Binance CEX como filas separadas de sus equivalentes on-chain",
+    "Login JWT expira en 24h y redirige a /login correctamente",
+    "Al cerrar posición (balance=0), historial archivado y próximo BUY inicia WAC desde cero",
+    "Sync BSC via BSCTrace retorna historial equivalente al antiguo BscScan"
+  ],
+  "stack": {
+    "backend": "Node.js + TypeScript (Fastify - Zod 4) — Render",
+    "frontend": "React + Vite + Tailwind CSS — Render",
+    "database": "Supabase (PostgreSQL)",
+    "auth": "JWT (jsonwebtoken) — single-user, password hasheado con bcrypt factor 12 en tabla users (1 registro)",
+    "priceOracles": "DefiLlama API (gratuita, sin API key) — precios históricos y actuales de tokens on-chain. Binance Market Data API (pública, sin auth) — precios actuales de tokens CEX via GET /api/v3/ticker/price.",
+    "onChainIndexers": "Etherscan API v2 — ETH (free tier: 5 req/s, 100k calls/day, 1k tx/query con paginación automática). BSCTrace API via MegaNode — BSC (free tier, reemplaza BscScan deprecado dic-2025, endpoint nr_getAssetTransfers).",
+    "cexConnectors": "Binance Spot REST API (read-only). Variables: BINANCE_API_KEY + BINANCE_SECRET_KEY. Endpoints usados: GET /api/v3/account (balances), GET /api/v3/myTrades (trades spot, ventana 24h/símbolo), GET /sapi/v1/convert/tradeFlow (Converts, ventana 30 días), GET /sapi/v1/capital/withdraw/history (retiros, ventana 90 días), GET /sapi/v1/capital/deposit/hisrec (depósitos, ventana 90 días). Snapshot de validación opcional: GET /sapi/v1/accountSnapshot?type=SPOT.",
+    "notifications": "Telegram Bot API — gratuita",
+    "swapDetection": "On-chain: ABI decoding de eventos Transfer + logs routers Uniswap v2/v3 y PancakeSwap. CEX: GET /sapi/v1/convert/tradeFlow descompuesto en SWAP_OUT/SWAP_IN."
+  },
+  "routes": [
+    {
+      "path": "/login",
+      "name": "Login",
+      "purpose": "Autenticación minimalista. Campo password, botón Entrar, JWT en cookie httpOnly al autenticar."
+    },
+    {
+      "path": "/",
+      "name": "Dashboard",
+      "purpose": "Vista agregada multi-fuente. Tokens on-chain del mismo tipo agrupados. Tokens CEX separados con badge Binance. Balance total, WAC ponderado, P&L combinado. Fila expandible por wallet/fuente."
+    },
+    {
+      "path": "/token/:contractAddress/:network",
+      "name": "Token Detail",
+      "purpose": "Posición activa del token. On-chain: selector de wallet. CEX: vista única Binance. Tabla de transacciones con P&L por lote, badges de tipo y fuente."
+    },
+    {
+      "path": "/token/:contractAddress/:network/history",
+      "name": "Position History",
+      "purpose": "Historial de ciclos cerrados con P&L realizado por ciclo."
+    },
+    {
+      "path": "/transactions/new",
+      "name": "Add Transaction",
+      "purpose": "Formulario manual. Soporta wallets on-chain y cuenta Binance CEX. Preview de impacto en WAC. Herencia de WAC para TRANSFER_IN."
+    },
+    {
+      "path": "/settings",
+      "name": "Settings",
+      "purpose": "Wallets on-chain, cuenta Binance CEX, tokens, API keys (Etherscan, BSCTrace, Binance, Telegram). Validación de balance opcional via snapshot."
+    },
+    {
+      "path": "/settings/wallets",
+      "name": "Wallet Management",
+      "purpose": "CRUD wallets on-chain con Sync individual. Gestión cuenta Binance con Sync completo."
+    }
+  ],
+  "uiNotes": [
+    "Tema oscuro único. Fondo #0D0D0D, accents verde (#22C55E) / rojo (#EF4444), amarillo Binance (#F0B90B) para badges CEX.",
+    "Login: pantalla centrada, logo, campo password, botón Entrar. Sin registro.",
+    "Dashboard: cards globales (Total Value, Cost Basis, P&L $, P&L %). Tabla con columna Source (badge red/network para on-chain, badge amarillo Binance para CEX). Fila expandible muestra desglose por wallet/fuente.",
+    "Token Detail on-chain: selector wallet (All Wallets / Wallet A / Wallet B). Token Detail CEX: sin selector.",
+    "Tabla TX: Date | Type badge | Source badge | Amount | Price at Time | Value at Time | Current Price | Current Value | P&L",
+    "Type badges: BUY verde, SELL rojo, SWAP_IN azul, SWAP_OUT naranja, TRANSFER_IN/OUT gris.",
+    "SWAP_IN/OUT on-chain: tooltip 'Auto-detected swap from TX 0x...'. SWAP_IN/OUT Binance Convert: tooltip 'Binance Convert #orderId'.",
+    "TRANSFER_IN con cost_source='INHERITED' desde on-chain: badge verde 'Cost inherited (wallet)'. Desde CEX: badge verde 'Cost inherited (Binance)'. Con 'MANUAL': badge gris 'Manual cost'.",
+    "TRANSFER_OUT Binance (retiro): badge naranja 'Withdrawal — txHash disponible'.",
+    "SELL/SWAP_OUT → P&L columna muestra valor realizado en cursiva.",
+    "Badge CYCLE #N en header Token Detail. Link 'View X closed cycles' debajo.",
+    "Settings: sección On-Chain Wallets, sección Exchange Accounts (Binance con estado Connected/Not configured), sección API Keys con botón Test individual, sección Balance Validation (snapshot opcional).",
+    "Sync Binance muestra resultado detallado: 'X trades | Y converts | Z withdrawals | W deposits'.",
+    "Refresh precios cada 60s con indicador 'Updated Xs ago'."
+  ],
+  "dataModel": [
+    {
+      "entity": "users",
+      "fields": [
+        "id UUID PK",
+        "password_hash TEXT NOT NULL — bcrypt factor 12",
+        "created_at TIMESTAMPTZ",
+        "NOTE: tabla de un solo registro."
+      ]
+    },
+    {
+      "entity": "wallets",
+      "fields": [
+        "id UUID PK",
+        "wallet_type ENUM('ON_CHAIN', 'CEX') NOT NULL",
+        "address VARCHAR(42) NULL — checksum EIP-55. NULL para wallet_type='CEX'",
+        "alias VARCHAR(100)",
+        "network ENUM('ETH', 'BSC', 'CEX_BINANCE') NOT NULL",
+        "storage_type ENUM('HOT', 'COLD', 'EXCHANGE') NOT NULL",
+        "last_synced_block BIGINT DEFAULT 0 — solo ON_CHAIN, ignorado para CEX",
+        "last_synced_at TIMESTAMPTZ NULL — para CEX: timestamp de última sync exitosa completa",
+        "is_active BOOLEAN DEFAULT true",
+        "created_at TIMESTAMPTZ",
+        "UNIQUE(address) WHERE address IS NOT NULL",
+        "CHECK: wallet_type='ON_CHAIN' → address IS NOT NULL AND network IN ('ETH','BSC')",
+        "CHECK: wallet_type='CEX' → address IS NULL AND network = 'CEX_BINANCE'"
+      ]
+    },
+    {
+      "entity": "wallet_sync_cursors",
+      "fields": [
+        "id UUID PK",
+        "wallet_id UUID FK → wallets ON DELETE CASCADE",
+        "operation VARCHAR(50) NOT NULL — 'trades:ETHUSDT', 'converts', 'withdrawals', 'deposits' (identifica el tipo de sync y símbolo si aplica)",
+        "last_synced_at TIMESTAMPTZ NOT NULL — fin de la última ventana procesada exitosamente",
+        "last_record_id BIGINT NULL — último trade_id o record_id procesado para evitar re-procesar",
+        "UNIQUE(wallet_id, operation)"
+      ]
+    },
+    {
+      "entity": "tokens",
+      "fields": [
+        "id UUID PK",
+        "contract_address VARCHAR(42) NOT NULL — para CEX: símbolo en minúsculas (ej: 'eth', 'btc', 'sol')",
+        "network ENUM('ETH', 'BSC', 'CEX_BINANCE') NOT NULL",
+        "symbol VARCHAR(20) NOT NULL",
+        "name VARCHAR(100)",
+        "decimals INTEGER DEFAULT 18 — NULL para tokens CEX",
+        "coingecko_id VARCHAR(100) — para DefiLlama (on-chain)",
+        "binance_symbol VARCHAR(20) NULL — símbolo base en Binance (ej: 'ETH'). Solo network='CEX_BINANCE'. Usado para GET /api/v3/ticker/price?symbol=<binance_symbol>USDT",
+        "is_hidden BOOLEAN DEFAULT false",
+        "is_custom BOOLEAN DEFAULT false",
+        "target_exit_price NUMERIC(20,8)",
+        "created_at TIMESTAMPTZ",
+        "UNIQUE(contract_address, network)"
+      ]
+    },
+    {
+      "entity": "positions",
+      "fields": [
+        "id UUID PK",
+        "wallet_id UUID FK → wallets ON DELETE CASCADE",
+        "token_id UUID FK → tokens",
+        "cycle_number INTEGER NOT NULL",
+        "status ENUM('OPEN', 'CLOSED') NOT NULL",
+        "opened_at TIMESTAMPTZ",
+        "closed_at TIMESTAMPTZ NULL",
+        "realized_pnl_usd NUMERIC(20,8) NULL",
+        "realized_pnl_partial_usd NUMERIC(20,8) DEFAULT 0",
+        "UNIQUE(wallet_id, token_id, cycle_number)"
+      ]
+    },
+    {
+      "entity": "transactions",
+      "fields": [
+        "id UUID PK",
+        "position_id UUID FK → positions",
+        "wallet_id UUID FK → wallets",
+        "token_id UUID FK → tokens",
+        "tx_hash VARCHAR(66) NULL — on-chain: hash de la transacción. CEX retiros: txId del withdrawal de Binance (puente cross-fuente para heredar WAC). NULL para trades spot/convert CEX normales.",
+        "tx_log_index INTEGER NULL — on-chain: distingue SWAP_IN vs SWAP_OUT del mismo hash. CEX Convert: 0=SWAP_OUT, 1=SWAP_IN. NULL para trades normales y transfers.",
+        "cex_trade_id BIGINT NULL — trade ID (myTrades), orderId (Convert), withdrawal ID o deposit ID de Binance. Usado para idempotencia.",
+        "block_number BIGINT NULL — NULL para transacciones CEX",
+        "block_timestamp TIMESTAMPTZ NOT NULL",
+        "type ENUM('BUY','SELL','SWAP_IN','SWAP_OUT','TRANSFER_IN','TRANSFER_OUT') NOT NULL",
+        "amount NUMERIC(30,18) NOT NULL",
+        "price_usd_at_time NUMERIC(20,8) NOT NULL",
+        "value_usd_at_time NUMERIC(20,8) GENERATED ALWAYS AS (amount * price_usd_at_time) STORED",
+        "commission_asset VARCHAR(20) NULL — activo del fee en CEX (ej: 'BNB')",
+        "commission_amount NUMERIC(20,8) NULL — cantidad del fee en CEX",
+        "source ENUM('MANUAL','ETHERSCAN','BSCTRACE','BINANCE') NOT NULL",
+        "cost_source ENUM('MARKET','INHERITED','MANUAL') NULL — para TRANSFER_IN: cómo se obtuvo el precio",
+        "related_tx_id UUID NULL FK → transactions — enlaza SWAP_IN con su SWAP_OUT (on-chain y Convert)",
+        "created_at TIMESTAMPTZ",
+        "UNIQUE(tx_hash, tx_log_index) WHERE tx_hash IS NOT NULL AND source IN ('ETHERSCAN','BSCTRACE') — idempotencia on-chain",
+        "UNIQUE(cex_trade_id, tx_log_index) WHERE cex_trade_id IS NOT NULL — idempotencia CEX (soporta Convert con 2 registros por orderId)"
+      ]
+    },
+    {
+      "entity": "api_credentials",
+      "fields": [
+        "id UUID PK",
+        "service_name ENUM('ETHERSCAN','BSCTRACE','BINANCE_API_KEY','BINANCE_SECRET_KEY','TELEGRAM_BOT_TOKEN','TELEGRAM_CHAT_ID') UNIQUE — BINANCE_SECRET_KEY (no BINANCE_API_SECRET)",
+        "api_key TEXT NOT NULL — AES-256 encrypted at rest",
+        "is_active BOOLEAN DEFAULT true",
+        "updated_at TIMESTAMPTZ"
+      ]
+    },
+    {
+      "entity": "price_alerts_sent",
+      "fields": [
+        "id UUID PK",
+        "token_id UUID FK → tokens",
+        "triggered_at TIMESTAMPTZ NOT NULL",
+        "price_at_trigger NUMERIC(20,8) NOT NULL",
+        "NOTE: previene spam. Reactiva si precio baja ≥5% del target y vuelve a superarlo."
+      ]
+    }
+  ],
+  "rules": [
+    "WAC PURO — REGLA INMUTABLE: El WAC se recalcula ÚNICAMENTE en BUY, SWAP_IN, TRANSFER_IN. SELL, SWAP_OUT, TRANSFER_OUT nunca modifican el WAC. Fórmula: wac = SUM(amount_i × price_i) / SUM(amount_i) para todos los eventos de entrada de la posición OPEN activa. Aplica igual para transacciones on-chain y CEX.",
+
+    "POSITION LIFECYCLE: BUY/SWAP_IN/TRANSFER_IN con balance=0 → crear position (cycle_number=max+1, status=OPEN). Con posición OPEN → asociar y recalcular WAC. SELL/SWAP_OUT parcial → reducir balance, WAC sin cambio, acumular realized_pnl_partial=(sell_price-wac)×amount. SELL/SWAP_OUT total (balance=0) → CLOSED, realized_pnl_usd=acumulado+P&L final. Aplica igual on-chain y CEX.",
+
+    "WALLET TYPE: ON_CHAIN tiene address EIP-55 + network ETH|BSC. CEX no tiene address, network=CEX_BINANCE. Máximo un registro CEX_BINANCE (una cuenta Binance).",
+
+    "TOKEN IDENTITY: on-chain → (contract_address, network) donde network ∈ {ETH,BSC}. CEX → (symbol.toLowerCase(), 'CEX_BINANCE'). El mismo activo en Binance y en SafePal son tokens distintos con posiciones WAC independientes.",
+
+    "BINANCE SYNC — TRADES (myTrades): BinanceSyncService.syncTrades(walletId, symbol): GET /api/v3/myTrades?symbol=<symbol>&startTime=X&endTime=Y con ventanas de 24h desde wallet_sync_cursors[trades:<symbol>].last_synced_at hasta now. isBuyer=true→BUY, isBuyer=false→SELL. Precio USD: si quote es USDT/BUSD/USDC → price_usd=quoteQty/qty. Si quote es BTC/ETH/BNB → price_usd=qty_base × precio_del_quote_en_USD via DefiLlama en ese timestamp. Guarda commission_asset y commission_amount. Idempotencia: UNIQUE(cex_trade_id, tx_log_index=NULL).",
+
+    "BINANCE SYNC — CONVERT (tradeFlow): BinanceSyncService.syncConvert(walletId): GET /sapi/v1/convert/tradeFlow?startTime=X&endTime=Y con ventanas de 30 días. Por cada Convert con orderStatus='SUCCESS': crear SWAP_OUT (fromAsset, fromAmount, tx_log_index=0) y SWAP_IN (toAsset, toAmount, tx_log_index=1), ambos con cex_trade_id=orderId y related_tx_id enlazando ambos. Precio de SWAP_OUT: si fromAsset es USDT → price_usd=1. Si no: price_usd via DefiLlama timestamp. Precio de SWAP_IN: toAmount_usd = fromAmount_usd × ratio. Idempotencia: UNIQUE(cex_trade_id, tx_log_index) → permite los 2 registros del mismo orderId.",
+
+    "BINANCE SYNC — WITHDRAWALS (retiros): BinanceSyncService.syncWithdrawals(walletId): GET /sapi/v1/capital/withdraw/history?startTime=X&endTime=Y con ventanas de 90 días. Por cada retiro con status=6 (completado): crear TRANSFER_OUT en posición CEX con type='TRANSFER_OUT', source='BINANCE', cex_trade_id=id_del_retiro, tx_hash=txId (hash on-chain del retiro). El tx_hash es el puente para herencia de WAC: cuando on-chain sync detecte el TRANSFER_IN con ese tx_hash, resolveTransferCost() lo encontrará y heredará el WAC de la posición CEX. Precio del TRANSFER_OUT: WAC actual de la posición CEX en ese momento.",
+
+    "BINANCE SYNC — DEPOSITS (depósitos): BinanceSyncService.syncDeposits(walletId): GET /sapi/v1/capital/deposit/hisrec?startTime=X&endTime=Y con ventanas de 90 días. Por cada depósito con status=1 (completado): crear TRANSFER_IN en posición CEX. Resolución de precio: (1) Busca si address del depósito (insertTime+address) coincide con una wallet ON_CHAIN registrada que tenga una TRANSFER_OUT con el mismo txId → hereda WAC, cost_source='INHERITED'. (2) Si no: price_usd via DefiLlama en insertTime, cost_source='MARKET'. cex_trade_id=id_del_depósito.",
+
+    "TRANSFER_IN COST RESOLUTION (extendido): OnChainSyncService.resolveTransferCost(txHash, fromAddress, tokenId): (1) Busca fromAddress en wallets ON_CHAIN → si existe y tiene posición OPEN: hereda WAC, cost_source='INHERITED'. (2) Si no: busca en transactions un registro TRANSFER_OUT con source='BINANCE' y tx_hash=txHash (retiro de Binance hacia esta wallet) → si existe: hereda WAC de la posición CEX al momento del retiro, cost_source='INHERITED'. (3) Si ninguna coincide: price_usd=null, cost_source='MANUAL', UI solicita precio.",
+
+    "SWAP DECOMPOSITION ON-CHAIN: OnChainSyncService.classifyAndDecomposeTransaction(): detecta routers Uniswap v2/v3 y PancakeSwap → SWAP_OUT en token saliente (tx_log_index=0) + SWAP_IN en token entrante (tx_log_index=1), precios via DefiLlama. related_tx_id enlaza ambos. UNIQUE(tx_hash, tx_log_index) garantiza idempotencia.",
+
+    "ETHERSCAN PAGINATION: Si result.length === 1000: siguiente query con startblock=last_block-1 hasta result.length < 1000. Implementado en OnChainSyncService.fetchAllTransactions().",
+
+    "AGGREGATED DASHBOARD: PortfolioService.aggregateByToken(): ON_CHAIN tokens agrupados por (contract_address, network) → wac_global=SUM(costBasis_i)/SUM(balance_i). CEX_BINANCE tokens siempre como filas independientes. Precio actual: ON_CHAIN via DefiLlama, CEX via GET /api/v3/ticker/price?symbol=<binance_symbol>USDT (público, sin auth).",
+
+    "BALANCE GUARD: SELL/TRANSFER_OUT con amount > balance_activo → HTTP 400 { error: 'Insufficient balance', currentBalance: X, attempted: Y }.",
+
+    "BALANCE VALIDATION OPCIONAL: GET /sapi/v1/accountSnapshot?type=SPOT retorna snapshot diario de balances. En Settings, botón 'Validate Balance' compara balances calculados por el motor WAC contra el snapshot de Binance del día. Muestra discrepancias con advertencia. No modifica datos — solo auditoría informativa. Discrepancias esperadas: dust conversions no registradas (nonGoal documentado).",
+
+    "PRECIO CACHE: DefiLlama cacheado 60s. Binance ticker cacheado 10s. Si cualquier fuente falla: { priceUnavailable: true } sin 500.",
+
+    "SYNC IDEMPOTENCY: on-chain → ON CONFLICT (tx_hash, tx_log_index) DO NOTHING. CEX → ON CONFLICT (cex_trade_id, tx_log_index) DO NOTHING. Todos los syncs son seguros de re-ejecutar.",
+
+    "DUST LIMITATION: conversiones de dust en Binance (dustlog/dust-convert) NO son registradas en V1. Los balances mínimos convertidos a BNB no se trackean. Se documenta como limitación conocida. La función Balance Validation puede detectar estas discrepancias.",
+
+    "TELEGRAM ALERT DEDUP: alerta una vez por cruce de target_exit_price. Registro en price_alerts_sent. Reactiva cuando precio baja ≥5% del target y vuelve a superarlo. Precio: DefiLlama para on-chain, Binance ticker para CEX.",
+
+    "JWT AUTH: POST /api/auth/login valida contra bcrypt hash. Emite JWT HS256 24h en cookie httpOnly + Secure + SameSite=Strict. Al expirar: frontend redirige a /login."
+  ],
+  "qualityGates": [
+    "npm run typecheck — sin errores TypeScript (backend + frontend)",
+    "npm run lint — ESLint sin warnings",
+    "npm run test:engine — PositionEngine: DCA 3 compras (WAC ponderado correcto), sell parcial (WAC no cambia), sell total → nuevo BUY (WAC=precio nuevo), SWAP on-chain (2 posiciones afectadas), TRANSFER_IN herencia on-chain, TRANSFER_IN herencia CEX via tx_hash, BUY Binance spot correcto",
+    "npm run test:sync — OnChainSyncService: paginación Etherscan (mock 1000+50 txs=1050 total), BSCTrace mock equivalente a BscScan. BinanceSyncService: trades USDT directo, trades via DefiLlama, Convert SWAP_OUT+SWAP_IN vinculados, withdrawal TRANSFER_OUT con tx_hash, deposit TRANSFER_IN con herencia de WAC, idempotencia (doble sync sin duplicados)",
+    "npm run test:e2e — flujo on-chain: login→BUY→P&L→SELL total→CLOSED→nuevo BUY→WAC fresco. flujo CEX: Binance sync→trades+convert+withdrawal importados→WAC calculado→retiro a SafePal→TRANSFER_IN on-chain hereda WAC de Binance",
+    "npm run build — producción sin errores"
+  ],
+  "stories": [
+    {
+      "id": "US-001",
+      "title": "Scaffold: monorepo, env, scripts base",
+      "status": "open",
+      "dependsOn": [],
+      "description": "Como desarrollador, quiero el monorepo scaffoldeado con backend Fastify + TypeScript y frontend React + Vite + Tailwind, con todos los scripts operativos.",
+      "acceptanceCriteria": [
+        "Estructura /apps/backend (Fastify + TypeScript) y /apps/frontend (React + Vite + Tailwind CSS)",
+        "npm run dev arranca backend en :3000 y frontend en :5173 concurrentemente (concurrently)",
+        "npm run build produce artefactos sin errores en ambos",
+        ".env.example con todas las variables: DATABASE_URL, JWT_SECRET, ENCRYPTION_KEY, ETHERSCAN_API_KEY, BSCTRACE_API_KEY, BINANCE_API_KEY, BINANCE_SECRET_KEY (no BINANCE_API_SECRET), TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, APP_PASSWORD",
+        "npm run typecheck y npm run lint pasan sin errores",
+        "npm run test:engine, npm run test:sync, npm run test:e2e definidos como scripts aunque los tests no existan aún",
+        "NEGATIVE: falta DATABASE_URL → backend falla al iniciar con mensaje descriptivo (no proceso silencioso)"
+      ]
+    },
+    {
+      "id": "US-002",
+      "title": "Schema de base de datos y migraciones",
+      "status": "open",
+      "dependsOn": ["US-001"],
+      "description": "Como desarrollador, quiero el schema completo híbrido on-chain/CEX en Supabase con todos los constraints correctos.",
+      "acceptanceCriteria": [
+        "Migraciones SQL en /db/migrations ejecutables via npm run db:migrate",
+        "wallets: wallet_type ENUM('ON_CHAIN','CEX'), address nullable, network incluye 'CEX_BINANCE', CHECK constraints de integridad, last_synced_at TIMESTAMPTZ NULL",
+        "wallet_sync_cursors: UNIQUE(wallet_id, operation) — opera con strings como 'trades:ETHUSDT', 'converts', 'withdrawals', 'deposits'",
+        "tokens: network incluye 'CEX_BINANCE', campo binance_symbol VARCHAR(20) NULL",
+        "transactions: tx_hash NULL, tx_log_index INTEGER NULL, cex_trade_id BIGINT NULL, commission_asset VARCHAR(20) NULL, commission_amount NUMERIC NULL, source incluye 'BSCTRACE' y 'BINANCE'",
+        "transactions UNIQUE on-chain: UNIQUE(tx_hash, tx_log_index) WHERE tx_hash IS NOT NULL AND source IN ('ETHERSCAN','BSCTRACE')",
+        "transactions UNIQUE CEX: UNIQUE(cex_trade_id, tx_log_index) WHERE cex_trade_id IS NOT NULL — soporta Convert con tx_log_index 0 y 1 para el mismo cex_trade_id",
+        "api_credentials: service_name enum incluye 'BSCTRACE', 'BINANCE_API_KEY', 'BINANCE_SECRET_KEY' (no BINANCE_API_SECRET)",
+        "positions: UNIQUE(wallet_id, token_id, cycle_number)",
+        "Índices: transactions(position_id), transactions(wallet_id, token_id), transactions(block_timestamp DESC), transactions(tx_hash) WHERE tx_hash IS NOT NULL, wallet_sync_cursors(wallet_id, operation)",
+        "npm run db:seed inserta: 1 user, 1 wallet ON_CHAIN ETH (SafePal), 1 wallet ON_CHAIN BSC (SafePal), 1 wallet CEX_BINANCE, tokens on-chain y CEX, posiciones con BUY/SELL/Convert/withdrawal de prueba",
+        "NEGATIVE: insertar 2 registros con mismo (cex_trade_id, tx_log_index) → error de constraint",
+        "NEGATIVE: insertar 3er registro CEX_BINANCE wallet → error de constraint o rechazo en capa de servicio"
+      ]
+    },
+    {
+      "id": "US-003",
+      "title": "JWT Auth — backend + pantalla de login",
+      "status": "open",
+      "dependsOn": ["US-002"],
+      "description": "Como usuario, quiero autenticación con password único que emita JWT y proteja todas las rutas.",
+      "acceptanceCriteria": [
+        "POST /api/auth/login: valida password contra bcrypt hash, emite JWT HS256 24h en cookie httpOnly + Secure + SameSite=Strict",
+        "POST /api/auth/logout: limpia la cookie",
+        "AuthMiddleware en todas las rutas /api/* — retorna 401 si token inválido o expirado",
+        "Ruta /login en frontend: campo password, botón Entrar, redirect a / al autenticar",
+        "Al recibir 401 desde cualquier API call: frontend redirige a /login automáticamente",
+        "APP_PASSWORD hasheado con bcrypt factor 12 al iniciar backend por primera vez (npm run setup o startup hook)",
+        "NEGATIVE: password incorrecto → 401 sin revelar si el usuario existe"
+      ]
+    },
+    {
+      "id": "US-004",
+      "title": "PositionEngine — motor WAC y ciclos (core)",
+      "status": "open",
+      "dependsOn": ["US-002"],
+      "description": "Como sistema, quiero el motor WAC puro que gestiona ciclos de posición para cualquier tipo de wallet y fuente.",
+      "acceptanceCriteria": [
+        "PositionEngine.processTransaction(tx) → abre, mantiene o cierra posición según type y balance",
+        "PositionEngine.calculateWAC(positionId) → { wac, costBasis, balance, unrealizedPnlUsd, unrealizedPnlPct }",
+        "BUY/SWAP_IN/TRANSFER_IN con balance=0: crea position cycle_number=max+1, status=OPEN",
+        "BUY con posición OPEN: recalcula WAC ponderado correctamente",
+        "SELL parcial: balance reduce, WAC no cambia, realized_pnl_partial acumula (price-wac)×amount",
+        "SELL total: posición → CLOSED, realized_pnl_usd registrado, closed_at=timestamp",
+        "Nuevo BUY post-CLOSED: nueva posición, WAC = precio del BUY (sin herencia del ciclo anterior)",
+        "Engine es agnóstico al source ('ETHERSCAN','BSCTRACE','BINANCE','MANUAL') — mismo comportamiento",
+        "Unit test DCA: 3 BUYs $1/$2/$3 × 10 tokens c/u → WAC=$2.00 exacto",
+        "Unit test sell parcial: BUY 10@$2 → SELL 5@$3 → WAC sigue $2",
+        "Unit test ciclo: BUY 10@$2 → SELL 10@$3 → CLOSED → BUY 5@$1 → WAC=$1 (nuevo ciclo)",
+        "Unit test Convert: SWAP_OUT 100 USDT + SWAP_IN 0.033 ETH@$3030 → posición ETH WAC=$3030",
+        "Unit test TRANSFER_IN herencia: TRANSFER_IN 0.5 ETH con cost_source='INHERITED', price=$3000 → WAC recalculado correctamente junto a BUYs previos",
+        "NEGATIVE: SELL amount > balance → Error { currentBalance, attempted }"
+      ]
+    },
+    {
+      "id": "US-005",
+      "title": "API REST: CRUD wallets y tokens (on-chain + CEX)",
+      "status": "open",
+      "dependsOn": ["US-003"],
+      "description": "Como usuario autenticado, quiero gestionar mis wallets on-chain, cuenta CEX Binance y tokens.",
+      "acceptanceCriteria": [
+        "POST /api/wallets: wallet_type='ON_CHAIN' requiere address (EIP-55) + network (ETH|BSC). wallet_type='CEX' requiere network='CEX_BINANCE', no acepta address",
+        "Validación ON_CHAIN: address checksumEIP-55 válido, network en {ETH, BSC}",
+        "Validación CEX: verifica que no exista ya un registro CEX_BINANCE — máximo 1 por plataforma",
+        "GET/PUT/DELETE /api/wallets/:id — AuthMiddleware",
+        "GET/POST/PUT /api/tokens — ?network=CEX_BINANCE para filtrar CEX, ?includeHidden=true",
+        "POST /api/tokens CEX: symbol, name, network='CEX_BINANCE', binance_symbol requerido. contract_address auto-generado como symbol.toLowerCase()",
+        "PUT /api/tokens/:id: { is_hidden, target_exit_price, binance_symbol }",
+        "NEGATIVE: POST wallet ON_CHAIN sin address → 400 'Address required for on-chain wallet'",
+        "NEGATIVE: segundo POST wallet CEX_BINANCE → 400 'Binance account already configured'",
+        "NEGATIVE: address ON_CHAIN sin checksum válido → 400 'Invalid Ethereum address'"
+      ]
+    },
+    {
+      "id": "US-006",
+      "title": "API REST: ingreso manual de transacciones",
+      "status": "open",
+      "dependsOn": ["US-004", "US-005"],
+      "description": "Como usuario, quiero ingresar transacciones manualmente activando el motor de ciclos.",
+      "acceptanceCriteria": [
+        "POST /api/transactions: { wallet_id, token_id, type, amount, price_usd_at_time, block_timestamp, cost_source? }",
+        "Llama PositionEngine.processTransaction() → retorna { position_id, cycle_number, status, wac, balance }",
+        "Para wallet CEX: source='MANUAL', tx_hash=null, cex_trade_id=null",
+        "Para TRANSFER_IN con price_usd_at_time=null: rechaza 400 'Price required for manual TRANSFER_IN'",
+        "GET /api/transactions?wallet_id=&token_id=&position_id= con paginación limit/offset",
+        "NEGATIVE: SELL con amount > balance → 400 { error, currentBalance, attempted }"
+      ]
+    },
+    {
+      "id": "US-007",
+      "title": "API REST: métricas de portafolio y P&L (multi-fuente)",
+      "status": "open",
+      "dependsOn": ["US-004", "US-006"],
+      "description": "Como usuario, quiero endpoints que devuelvan P&L en tiempo real con agregación correcta on-chain/CEX.",
+      "acceptanceCriteria": [
+        "GET /api/portfolio: on-chain agrupado por (contract_address, network) entre wallets ON_CHAIN; CEX_BINANCE como filas independientes. Respuesta: { totalValueUsd, totalCostBasis, totalPnlUsd, totalPnlPct, tokens: [{ symbol, network, sourceType, totalBalance, currentPrice, totalCurrentValue, wacAggregated, totalCostBasis, pnlUsd, pnlPct, walletCount, walletBreakdown }] }",
+        "Precio actual ON_CHAIN: DefiLlama GET /coins/prices/current/{chain}:{address}",
+        "Precio actual CEX: Binance GET /api/v3/ticker/price?symbol=<binance_symbol>USDT (público, sin auth)",
+        "GET /api/portfolio/token/:contractAddress/:network: posición activa + txs con per-lot P&L. ON_CHAIN: ?wallet_id= filtra. CEX: siempre la cuenta Binance",
+        "Per-lot P&L: BUY/SWAP_IN/TRANSFER_IN → lotPnlUsd=(currentPrice-priceAtTime)×amount. SELL/SWAP_OUT/TRANSFER_OUT → { displayAs: 'Sold/Out' }",
+        "GET /api/portfolio/token/:contractAddress/:network/history: ciclos cerrados con { cycleNumber, openedAt, closedAt, realizedPnlUsd }",
+        "Cache: DefiLlama 60s, Binance ticker 10s. Si falla cualquiera: { priceUnavailable: true } sin 500",
+        "NEGATIVE: token sin precio disponible → priceUnavailable: true con log de warning"
+      ]
+    },
+    {
+      "id": "US-008-A",
+      "title": "Sync on-chain: Etherscan (ETH) + BSCTrace (BSC) con paginación y SWAP decomposition",
+      "status": "open",
+      "dependsOn": ["US-006"],
+      "description": "Como usuario, quiero sincronizar wallets on-chain con detección de SWAPs, paginación completa y herencia de WAC en TRANSFER_IN.",
+      "acceptanceCriteria": [
+        "POST /api/sync/:walletId: solo para wallet_type='ON_CHAIN'. Retorna 400 si CEX.",
+        "ETH (network='ETH'): Etherscan API v2 chainid=1, endpoints txlist + tokentx",
+        "BSC (network='BSC'): BSCTrace API via MegaNode, endpoint nr_getAssetTransfers (JSON-RPC 2.0)",
+        "OnChainSyncService.fetchAllTransactions(): paginación automática si result.length===1000 → itera con startblock=last_block-1 hasta result.length<1000",
+        "OnChainSyncService.classifyAndDecomposeTransaction(): detecta routers Uniswap v2/v3 y PancakeSwap → SWAP_OUT(tx_log_index=0) + SWAP_IN(tx_log_index=1) con related_tx_id y precios DefiLlama",
+        "OnChainSyncService.resolveTransferCost(txHash, fromAddress, tokenId): (1) busca fromAddress en wallets ON_CHAIN → hereda WAC si existe posición OPEN. (2) Si no: busca TRANSFER_OUT con source='BINANCE' y tx_hash=txHash → hereda WAC de posición CEX. (3) Si ninguna: null, cost_source='MANUAL'",
+        "Inserción idempotente: ON CONFLICT (tx_hash, tx_log_index) DO NOTHING",
+        "Actualiza wallet.last_synced_block al bloque más alto procesado",
+        "Respuesta: { synced: N, skipped: M, swapsDecomposed: K, transfersPendingCost: J, transfersInheritedFromCEX: L, newTransactions: [...últimas 10] }",
+        "Unit test paginación: mock retorna 1000 txs en 1ra call y 50 en 2da → total 1050 procesadas",
+        "Unit test BSCTrace: mock de nr_getAssetTransfers produce mismo resultado que BscScan txlist equivalente",
+        "Unit test herencia CEX: TRANSFER_IN con txHash que coincide con TRANSFER_OUT Binance → cost_source='INHERITED'",
+        "NEGATIVE: ETHERSCAN_API_KEY no configurada → 400 'Etherscan API key not configured'",
+        "NEGATIVE: BSCTRACE_API_KEY no configurada → 400 'BSCTrace API key not configured'"
+      ]
+    },
+    {
+      "id": "US-008-B",
+      "title": "Sync CEX: Binance Spot — trades, Converts, retiros y depósitos",
+      "status": "open",
+      "dependsOn": ["US-006"],
+      "description": "Como usuario, quiero sincronizar todos los movimientos de mi cuenta Binance: trades spot, Converts, retiros a on-chain y depósitos desde on-chain.",
+      "acceptanceCriteria": [
+        "POST /api/sync/:walletId: solo para wallet_type='CEX'. Retorna 400 si ON_CHAIN.",
+        "BinanceSyncService.syncTrades(walletId): GET /api/v3/account → assets con balance>0. Por cada asset construye símbolo USDT (ETH→ETHUSDT). Itera ventanas 24h desde wallet_sync_cursors['trades:<symbol>'].last_synced_at. isBuyer=true→BUY, false→SELL. Precio: quoteQty/qty si quote es USDT/BUSD/USDC, sino DefiLlama para el quote asset. Idempotencia: UNIQUE(cex_trade_id, tx_log_index=NULL).",
+        "BinanceSyncService.syncConvert(walletId): GET /sapi/v1/convert/tradeFlow con ventanas 30 días. Por cada Convert SUCCESS: SWAP_OUT(fromAsset, fromAmount, tx_log_index=0) + SWAP_IN(toAsset, toAmount, tx_log_index=1), mismo cex_trade_id=orderId, related_tx_id enlaza ambos. Idempotencia: UNIQUE(cex_trade_id, tx_log_index).",
+        "BinanceSyncService.syncWithdrawals(walletId): GET /sapi/v1/capital/withdraw/history con ventanas 90 días. Por cada retiro status=6: TRANSFER_OUT en posición CEX con source='BINANCE', cex_trade_id=id_retiro, tx_hash=txId (hash on-chain). price_usd=WAC actual de la posición CEX al momento del retiro.",
+        "BinanceSyncService.syncDeposits(walletId): GET /sapi/v1/capital/deposit/hisrec con ventanas 90 días. Por cada depósito status=1: TRANSFER_IN en posición CEX. Resolución: si address del depósito coincide con wallet ON_CHAIN registrada que tiene TRANSFER_OUT con mismo txId → cost_source='INHERITED'. Sino: precio via DefiLlama, cost_source='MARKET'.",
+        "Crea tokens CEX_BINANCE automáticamente si no existen al procesar trades/converts/withdrawals/deposits",
+        "Actualiza wallet_sync_cursors para cada operación tras completarse",
+        "Respuesta: { trades: { synced, skipped, symbolsProcessed }, converts: { synced, skipped }, withdrawals: { synced, skipped }, deposits: { synced, skipped, inherited, manual }, tokensCreated: N }",
+        "Unit test Convert: orderId=123, USDT→ETH, ratio=0.00033 → SWAP_OUT USDT tx_log_index=0, SWAP_IN ETH tx_log_index=1, related_tx_id vinculados",
+        "Unit test withdrawal: retiro 1 ETH, txId='0xabc...', WAC=$3000 → TRANSFER_OUT CEX con tx_hash='0xabc...' y price_usd=$3000",
+        "Unit test deposit herencia: depósito 1 ETH desde address=SafePal registrada → busca TRANSFER_OUT on-chain con mismo txId → cost_source='INHERITED'",
+        "Unit test idempotencia Convert: ejecutar syncConvert 2 veces → sin registros duplicados, UNIQUE constraint no lanza error",
+        "NEGATIVE: BINANCE_API_KEY no configurada → 400 'Binance API key not configured'",
+        "NEGATIVE: API key sin permiso de lectura → 400 'Invalid Binance API credentials or insufficient permissions'"
+      ]
+    },
+    {
+      "id": "US-009",
+      "title": "Dashboard principal — UI agregada multi-fuente",
+      "status": "open",
+      "dependsOn": ["US-007"],
+      "description": "Como usuario, quiero el dashboard mostrando todos mis tokens (on-chain y CEX) con P&L en tiempo real.",
+      "acceptanceCriteria": [
+        "Cards superiores: Total Portfolio Value, Total Cost Basis, Total P&L ($), Total P&L (%)",
+        "Tabla: Logo | Symbol | Network/Source | Balance Total | Current Price | Current Value | WAC | Cost Basis | P&L ($) | P&L (%)",
+        "Tokens on-chain del mismo tipo agrupados en una fila con badge count de wallets",
+        "Tokens CEX_BINANCE con badge amarillo (#F0B90B) 'Binance' en columna Source — nunca agrupados con on-chain",
+        "Fila expandible on-chain: breakdown por wallet con Balance, WAC individual, P&L individual",
+        "Fila expandible CEX: 'Binance Account' con balance, WAC, P&L",
+        "P&L verde (#22C55E) positivo, rojo (#EF4444) negativo",
+        "Refresh automático 60s con indicador 'Updated Xs ago'",
+        "Tokens con balance total = 0 no aparecen en tabla principal",
+        "NEGATIVE: portafolio vacío → empty state 'Add your first wallet in Settings'"
+      ]
+    },
+    {
+      "id": "US-010",
+      "title": "Token Detail — UI posición y transacciones",
+      "status": "open",
+      "dependsOn": ["US-007", "US-009"],
+      "description": "Como usuario, quiero el desglose completo de posición de un token con tabla de transacciones y badges de tipo/fuente.",
+      "acceptanceCriteria": [
+        "Header: logo, symbol, network badge (ETH/BSC/Binance), badge CYCLE #N, Balance, Price, Value, WAC, Cost Basis, P&L ($), P&L (%)",
+        "ON_CHAIN: selector wallet (All Wallets / wallet específica). CEX: sin selector — siempre cuenta Binance",
+        "Tabla TX: Date | Type badge | Source badge | Amount | Price at Time | Value at Time | Current Price | Current Value | P&L",
+        "Type badges: BUY verde, SELL rojo, SWAP_IN azul, SWAP_OUT naranja, TRANSFER_IN/OUT gris",
+        "SWAP_IN/OUT on-chain: tooltip 'Auto-detected swap from TX 0x...'",
+        "SWAP_IN/OUT Binance Convert: tooltip 'Binance Convert #<orderId>'",
+        "TRANSFER_IN inherited desde on-chain: badge verde 'Cost inherited (wallet)'",
+        "TRANSFER_IN inherited desde Binance: badge verde 'Cost inherited (Binance)'",
+        "TRANSFER_IN manual: badge gris 'Manual cost'",
+        "TRANSFER_OUT Binance (retiro): badge naranja con tooltip 'Withdrawal tx: 0x...'",
+        "SELL/SWAP_OUT → columna P&L muestra P&L realizado en cursiva",
+        "Link 'View N closed cycles' → /token/:address/:network/history",
+        "NEGATIVE: sin posición ni historial → 'No transactions recorded yet'"
+      ]
+    },
+    {
+      "id": "US-011",
+      "title": "Formulario de ingreso manual de transacciones — UI",
+      "status": "open",
+      "dependsOn": ["US-006", "US-010"],
+      "description": "Como usuario, quiero agregar transacciones manualmente con preview de impacto en WAC para cualquier fuente.",
+      "acceptanceCriteria": [
+        "Campos: Wallet/Source (select — on-chain wallets + 'Binance Account'), Token (filtrado por wallet seleccionada), Type, Amount, Price USD at Time, Date & Time",
+        "Al seleccionar Binance Account: Token muestra solo tokens CEX_BINANCE",
+        "Preview en tiempo real al cambiar Amount o Price: 'New WAC: $X' y 'New Balance: Y'",
+        "Si Type=TRANSFER_IN y wallet on-chain origen reconocida: sugerencia 'Inherit WAC $X from [WalletAlias]?' con botón 'Use this'",
+        "SELL con amount > balance → submit deshabilitado con 'Exceeds balance of X tokens'",
+        "Submit exitoso → toast 'Transaction added. Cycle #N updated.' → redirect a /token/:address/:network",
+        "NEGATIVE: campos vacíos → errores inline. Price = 0 → 'Price must be greater than 0'"
+      ]
+    },
+    {
+      "id": "US-012",
+      "title": "Settings — wallets, cuenta CEX, tokens, API keys, validación — UI",
+      "status": "open",
+      "dependsOn": ["US-005", "US-008-A", "US-008-B"],
+      "description": "Como usuario, quiero configurar wallets, cuenta Binance CEX, tokens, credenciales y validar balance desde Settings.",
+      "acceptanceCriteria": [
+        "Sección 'On-Chain Wallets': address truncada + copy, alias, badges network/storage_type, botón Sync con resultado inline y 'Last synced: Xs ago'",
+        "Sección 'Exchange Accounts': Binance con estado Connected/Not configured, último sync timestamp, botón Sync. Resultado detallado: 'X trades | Y converts | Z withdrawals | W deposits'",
+        "Tokens: lista con is_hidden toggle, target_exit_price editable inline, badge de fuente (ETH/BSC/Binance)",
+        "Sección 'API Keys': Etherscan (label: ETHERSCAN_API_KEY), BSCTrace (label: BSCTRACE_API_KEY), Binance API Key (label: BINANCE_API_KEY), Binance Secret Key (label: BINANCE_SECRET_KEY) — inputs type=password, botón Test individual",
+        "Test Etherscan: ping a API → 'Connected' o 'Failed: [reason]'",
+        "Test BSCTrace: ping a MegaNode → 'Connected' o 'Failed: [reason]'",
+        "Test Binance: GET /api/v3/account → 'Connected: X assets' o 'Failed: Invalid credentials'",
+        "Sección 'Balance Validation' (opcional): botón 'Validate vs Binance Snapshot' → compara balances motor vs snapshot diario Binance. Muestra tabla de diferencias. Nota explicativa sobre dust como causa esperada de discrepancias.",
+        "Banner de advertencia si hay TRANSFER_IN pendientes de precio manual con CTA para resolverlos",
+        "NEGATIVE: Test Binance key inválida → 'Connection failed: Invalid API key'",
+        "NEGATIVE: Binance key sin permiso read → 'Failed: API key requires read permissions'"
+      ]
+    },
+    {
+      "id": "US-013",
+      "title": "Alertas de precio objetivo via Telegram",
+      "status": "open",
+      "dependsOn": ["US-012"],
+      "description": "Como usuario, quiero alertas en Telegram cuando cualquier token (on-chain o CEX) alcance mi target_exit_price.",
+      "acceptanceCriteria": [
+        "Cron job cada 5min consulta precios para tokens con target_exit_price != null y is_hidden=false",
+        "ON_CHAIN: precio via DefiLlama. CEX_BINANCE: precio via GET /api/v3/ticker/price?symbol=<binance_symbol>USDT",
+        "Si current_price >= target_exit_price: enviar Telegram '🎯 [SYMBOL] ([Binance|ETH|BSC]) target reached\\nPrice: $X | Target: $Y\\nP&L: $Z (N%)'",
+        "Alerta una vez por cruce: insertar en price_alerts_sent. Reactiva cuando precio baja ≥5% del target y vuelve a superarlo",
+        "NEGATIVE: Telegram no configurado → cron loguea warning, no crashea",
+        "NEGATIVE: DefiLlama o Binance ticker fallan → skipea ese token en ese ciclo, loguea warning, no crashea el cron"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "name": "cryptoledger",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "dev": "concurrently -n backend,frontend -c blue,magenta \"npm:dev:backend\" \"npm:dev:frontend\"",
+    "dev:backend": "npm -w apps/backend run dev",
+    "dev:frontend": "npm -w apps/frontend run dev",
+    "build": "npm -w apps/backend run build && npm -w apps/frontend run build",
+    "typecheck": "npm -w apps/backend run typecheck && npm -w apps/frontend run typecheck",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:engine": "vitest run --project engine",
+    "test:sync": "vitest run --project sync",
+    "test:e2e": "vitest run --project e2e",
+    "db:migrate": "npm -w apps/backend run db:migrate",
+    "db:seed": "npm -w apps/backend run db:seed"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.20.0",
+    "@types/node": "^22.0.0",
+    "concurrently": "^9.0.0",
+    "eslint": "^9.20.0",
+    "eslint-plugin-jsx-a11y": "^6.10.0",
+    "eslint-plugin-n": "^17.0.0",
+    "eslint-plugin-react": "^7.37.0",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "lint-staged": "^15.0.0",
+    "node-pg-migrate": "^7.0.0",
+    "prettier": "^3.4.0",
+    "simple-git-hooks": "^2.11.0",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.20.0",
+    "vitest": "^2.1.0"
+  },
+  "simple-git-hooks": {
+    "pre-commit": "npx lint-staged"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,yaml,yml,css,html}": [
+      "prettier --write"
+    ]
+  }
+}

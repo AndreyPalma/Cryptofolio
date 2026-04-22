@@ -1,0 +1,82 @@
+schema: spec-driven
+
+context: |
+  Project: CryptoLedger — personal crypto portfolio tracker (single-user).
+  State: greenfield — only prd.json (v5 spec, authoritative) + prototipo/ (UI mockup).
+  Planned stack: Fastify + TypeScript + Zod 4 (backend), React + Vite + Tailwind 4 (frontend),
+  Supabase Postgres, JWT HS256 + bcrypt (single-user auth).
+  Accounting engine: WAC puro, per-position cycles, swap decomposition (on-chain + Binance Convert),
+  WAC inheritance on TRANSFER_IN via wallet address or Binance withdrawal tx_hash bridge.
+  Language in artifacts: Spanish (Rioplatense voseo) for prose, English for code/identifiers.
+
+strict_tdd: true
+
+rules:
+  proposal:
+    - Include rollback plan for risky changes
+    - Identify affected modules/packages
+    - Reference the originating US-XXX from prd.json when applicable
+  specs:
+    - Use Given/When/Then for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+    - Preserve PRD invariants verbatim (WAC puro, cycle lifecycle, UNIQUE constraints)
+  design:
+    - Include sequence diagrams for sync flows (on-chain + Binance)
+    - Document architecture decisions with rationale, not just outcome
+    - Call out idempotency strategy for any sync endpoint
+  tasks:
+    - Group tasks by phase (infrastructure, implementation, testing)
+    - Use hierarchical numbering (1.1, 1.2, ...)
+    - Each task small enough for one session
+    - NEGATIVE criteria from PRD acceptance lists become explicit test tasks
+  apply:
+    - Follow existing code patterns once established
+    - Load relevant coding skills (typescript, zod-4, nodejs-backend-patterns, react-19, tailwind-4)
+    - Strict TDD: write failing test, make it pass, refactor
+  verify:
+    - Run tests via the scripts defined in US-001 (test:engine, test:sync, test:e2e)
+    - Compare implementation against every spec scenario AND every PRD acceptance criterion
+    - Flag any drift from PRD invariants as CRITICAL
+  archive:
+    - Warn before merging destructive deltas (large removals)
+    - Update prd.json version field if accounting semantics changed
+
+testing:
+  strict_tdd_mode: true
+  detected_at: 2026-04-21
+  test_runner:
+    framework: null
+    command: null
+    status: not-configured
+    note: >
+      Project is greenfield — no package.json yet. Test runner (vitest recommended
+      per PRD tone) will be introduced in US-001 along with scripts:
+      test:engine, test:sync, test:e2e. Strict TDD becomes operational once US-001 lands.
+  layers:
+    unit:
+      available: false
+      tool: null
+    integration:
+      available: false
+      tool: null
+    e2e:
+      available: false
+      tool: null
+  coverage:
+    available: false
+    command: null
+  quality:
+    linter:
+      available: false
+      command: null
+      planned: eslint (per US-001 acceptance: `npm run lint`)
+    type_checker:
+      available: false
+      command: null
+      planned: tsc --noEmit (per US-001 acceptance: `npm run typecheck`)
+    formatter:
+      available: false
+      command: null
+      planned: prettier
+
+prd_source_of_truth: prd.json
