@@ -9,7 +9,7 @@ import pluginJsxA11y from "eslint-plugin-jsx-a11y";
 export default tseslint.config(
   // Global ignores
   {
-    ignores: ["docs/**", "**/dist/**", "**/node_modules/**"],
+    ignores: ["docs/**", "**/dist/**", "**/node_modules/**", "db/*.js"],
   },
 
   // Base JS rules
@@ -101,7 +101,15 @@ export default tseslint.config(
 
   // Test files and utility scripts — disable strict typed rules that don't apply
   {
-    files: ["db/**/*.ts", "tests/**/*.ts"],
+    files: ["db/**/*.ts", "tests/**/*.ts", "**/*.test.ts", "**/*.spec.ts"],
     ...tseslint.configs.disableTypeChecked,
+    rules: {
+      ...tseslint.configs.disableTypeChecked.rules,
+      // INSERT ... RETURNING patterns produce single-row arrays; `r.rows[0]!`
+      // is idiomatic in tests and seed scripts.
+      "@typescript-eslint/no-non-null-assertion": "off",
+      // Test setup commonly clears dynamic env keys.
+      "@typescript-eslint/no-dynamic-delete": "off",
+    },
   },
 );

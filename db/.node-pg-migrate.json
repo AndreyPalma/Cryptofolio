@@ -1,0 +1,7 @@
+{
+  "migrationFileLanguage": "sql",
+  "schema": "public",
+  "dir": "migrations",
+  "databaseUrlVar": "DATABASE_URL",
+  "migrationsTable": "pgmigrations"
+}

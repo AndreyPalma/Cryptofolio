@@ -2,6 +2,9 @@ import { z } from "zod";
 
 export const EnvSchema = z.object({
   DATABASE_URL: z.url({ error: "DATABASE_URL must be a valid Postgres connection URL" }),
+  DATABASE_URL_TEST: z
+    .url({ error: "DATABASE_URL_TEST must be a valid Postgres connection URL" })
+    .optional(),
   JWT_SECRET: z.string().min(32, { error: "JWT_SECRET must be at least 32 chars" }),
   ENCRYPTION_KEY: z
     .string()

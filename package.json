@@ -4,7 +4,8 @@
   "private": true,
   "workspaces": [
     "apps/*",
-    "packages/*"
+    "packages/*",
+    "db"
   ],
   "engines": {
     "node": ">=22.0.0"
@@ -24,8 +25,9 @@
     "test:engine": "vitest run --project engine",
     "test:sync": "vitest run --project sync",
     "test:e2e": "vitest run --project e2e",
-    "db:migrate": "npm -w apps/backend run db:migrate",
-    "db:seed": "npm -w apps/backend run db:seed"
+    "db:migrate": "npm -w @cryptoledger/db run migrate",
+    "db:migrate:down": "npm -w @cryptoledger/db run migrate:down",
+    "db:seed": "npm -w @cryptoledger/db run seed"
   },
   "devDependencies": {
     "@eslint/js": "^9.20.0",
@@ -55,5 +57,8 @@
     "*.{json,md,yaml,yml,css,html}": [
       "prettier --write"
     ]
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2"
   }
 }

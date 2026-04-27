@@ -6,17 +6,17 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc --project tsconfig.build.json",
-    "typecheck": "tsc --noEmit --project tsconfig.build.json",
-    "db:migrate": "node -e \"console.log('placeholder: US-002 will implement')\"",
-    "db:seed": "node -e \"console.log('placeholder: US-002 will implement')\""
+    "typecheck": "tsc --noEmit --project tsconfig.build.json"
   },
   "dependencies": {
     "fastify": "^5.0.0",
     "fastify-type-provider-zod": "^6.0.0",
+    "pg": "^8.13.0",
     "zod": "^4.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@types/pg": "^8.11.0",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
     "vitest": "*"

@@ -4,10 +4,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "migrate": "node -e \"console.log('placeholder: US-002 will implement')\"",
-    "seed": "node -e \"console.log('placeholder: US-002 will implement')\""
+    "migrate": "node ./migrate.js up",
+    "migrate:down": "node ./migrate.js down",
+    "seed": "node ./seed-runner.js"
+  },
+  "dependencies": {
+    "pg": "^8.13.0"
   },
   "devDependencies": {
-    "node-pg-migrate": "^7.0.0"
+    "@types/pg": "^8.11.0",
+    "node-pg-migrate": "^7.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
   }
 }
