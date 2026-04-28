@@ -5,7 +5,8 @@ import type { FastifyInstance } from "fastify";
 let server: FastifyInstance;
 
 beforeAll(async () => {
-  server = await buildServer();
+  // Health test does not require auth plugins — disable them to avoid needing JWT_SECRET
+  server = await buildServer({ enableAuth: false });
 });
 
 afterAll(async () => {

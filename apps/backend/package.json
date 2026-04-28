@@ -9,12 +9,17 @@
     "typecheck": "tsc --noEmit --project tsconfig.build.json"
   },
   "dependencies": {
+    "@fastify/cookie": "^11.0.2",
+    "@fastify/jwt": "^10.0.0",
+    "bcrypt": "^6.0.0",
     "fastify": "^5.0.0",
+    "fastify-plugin": "^5.1.0",
     "fastify-type-provider-zod": "^6.0.0",
     "pg": "^8.13.0",
     "zod": "^4.0.0"
   },
   "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
     "@types/node": "^22.0.0",
     "@types/pg": "^8.11.0",
     "tsx": "^4.19.0",

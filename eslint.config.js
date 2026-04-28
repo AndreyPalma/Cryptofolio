@@ -29,7 +29,13 @@ export default tseslint.config(
     languageOptions: {
       parserOptions: {
         projectService: {
-          allowDefaultProject: ["apps/frontend/vite.config.ts", "db/*.ts", "tests/e2e/*.ts"],
+          allowDefaultProject: [
+            "apps/frontend/vite.config.ts",
+            "apps/frontend/tests/*.ts",
+            "apps/frontend/tests/*.tsx",
+            "db/*.ts",
+            "tests/e2e/*.ts",
+          ],
         },
         tsconfigRootDir: import.meta.dirname,
       },
@@ -101,15 +107,13 @@ export default tseslint.config(
 
   // Test files and utility scripts — disable strict typed rules that don't apply
   {
-    files: ["db/**/*.ts", "tests/**/*.ts", "**/*.test.ts", "**/*.spec.ts"],
+    files: ["db/**/*.ts", "tests/**/*.ts", "**/*.test.ts", "**/*.spec.ts", "**/*.test.tsx", "**/*.spec.tsx"],
     ...tseslint.configs.disableTypeChecked,
     rules: {
       ...tseslint.configs.disableTypeChecked.rules,
-      // INSERT ... RETURNING patterns produce single-row arrays; `r.rows[0]!`
-      // is idiomatic in tests and seed scripts.
       "@typescript-eslint/no-non-null-assertion": "off",
-      // Test setup commonly clears dynamic env keys.
       "@typescript-eslint/no-dynamic-delete": "off",
+      "@typescript-eslint/no-empty-function": "off",
     },
   },
 );

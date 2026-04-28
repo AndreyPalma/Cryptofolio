@@ -1,13 +1,27 @@
 import { defineWorkspace } from "vitest/config";
+import react from "@vitejs/plugin-react";
 
 export default defineWorkspace([
+  {
+    plugins: [react()],
+    test: {
+      name: "frontend",
+      environment: "jsdom",
+      include: [
+        "apps/frontend/src/**/*.{test,spec}.{ts,tsx}",
+        "apps/frontend/tests/**/*.{test,spec}.{ts,tsx}",
+      ],
+      globals: true,
+      setupFiles: [],
+    },
+  },
   {
     test: {
       name: "engine",
       environment: "node",
       include: [
         "apps/backend/src/**/*.{test,spec}.ts",
-        "apps/backend/tests/*.{test,spec}.ts",
+        "apps/backend/tests/**/*.{test,spec}.ts",
         "db/*.{test,spec}.ts",
       ],
       exclude: ["apps/backend/tests/sync-*.{test,spec}.ts"],

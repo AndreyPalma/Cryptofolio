@@ -6,8 +6,21 @@ import {
 } from "fastify-type-provider-zod";
 import { ZodError } from "zod";
 import { healthPlugin } from "./plugins/health.js";
+import { bootstrapAuth } from "./services/auth-bootstrap.js";
+import authPlugin from "./plugins/auth.js";
 
-export async function buildServer(): Promise<FastifyInstance> {
+export interface BuildServerOptions {
+  /** JWT secret for @fastify/jwt. Required for auth to work. */
+  jwtSecret?: string;
+  /** Whether to register auth plugins. Default: true */
+  enableAuth?: boolean;
+}
+
+export async function buildServer(
+  opts: BuildServerOptions = {},
+): Promise<FastifyInstance> {
+  const { jwtSecret = process.env.JWT_SECRET ?? "", enableAuth = true } = opts;
+
   const fastify = Fastify({ logger: true }).withTypeProvider<ZodTypeProvider>();
 
   fastify.setValidatorCompiler(validatorCompiler);
@@ -42,6 +55,24 @@ export async function buildServer(): Promise<FastifyInstance> {
     });
   });
 
+  if (enableAuth) {
+    // Auth plugins — order is NON-NEGOTIABLE (see design §2.2)
+    // 1. @fastify/cookie — must be registered before @fastify/jwt reads cookies
+    // 2. @fastify/jwt — must be registered before authPlugin signs/verifies tokens
+    // 3. authPlugin — registers public auth routes BEFORE adding the onRequest hook
+    const fastifyCookie = await import("@fastify/cookie");
+    const fastifyJwt = await import("@fastify/jwt");
+
+    await fastify.register(fastifyCookie.default);
+    await fastify.register(fastifyJwt.default, {
+      secret: jwtSecret,
+      cookie: { cookieName: "token", signed: false },
+    });
+
+    await fastify.register(authPlugin);
+  }
+
+  // Health route — public, outside /api/* scope
   await fastify.register(healthPlugin);
 
   return fastify;
@@ -55,7 +86,11 @@ if (isMain) {
   try {
     const { parseEnv } = await import("./env.js");
     const env = parseEnv();
-    const server = await buildServer();
+
+    // Bootstrap bcrypt hash BEFORE creating the server (design §2.2, step 1)
+    await bootstrapAuth();
+
+    const server = await buildServer({ jwtSecret: env.JWT_SECRET });
     await server.listen({ port: env.PORT, host: "0.0.0.0" });
   } catch (err) {
     if (err instanceof ZodError) {

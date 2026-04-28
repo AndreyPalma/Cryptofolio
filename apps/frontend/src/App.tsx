@@ -1,10 +1,18 @@
+/**
+ * App.tsx — root component.
+ *
+ * CRITICAL: AuthProvider MUST wrap RouterProvider.
+ * Inverting the order breaks useNavigate in redirectToLogin
+ * (it would run outside a Router context).
+ */
+import { RouterProvider } from "react-router-dom";
+import { AuthProvider } from "./lib/auth-context";
+import { router } from "./routes/router";
+
 export function App() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-950 text-white">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold tracking-tight">CryptoLedger</h1>
-        <p className="mt-2 text-gray-400">Scaffold — US-001</p>
-      </div>
-    </div>
+    <AuthProvider>
+      <RouterProvider router={router} />
+    </AuthProvider>
   );
 }
