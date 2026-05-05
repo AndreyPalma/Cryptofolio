@@ -43,40 +43,40 @@ rules:
 
 testing:
   strict_tdd_mode: true
-  detected_at: 2026-04-21
+  detected_at: 2026-04-28
   test_runner:
-    framework: null
-    command: null
-    status: not-configured
-    note: >
-      Project is greenfield — no package.json yet. Test runner (vitest recommended
-      per PRD tone) will be introduced in US-001 along with scripts:
-      test:engine, test:sync, test:e2e. Strict TDD becomes operational once US-001 lands.
+    framework: vitest
+    version: "^2.1.0"
+    command: "vitest run"
+    status: configured
   layers:
     unit:
-      available: false
-      tool: null
+      available: true
+      tool: vitest
+      command: "npm run test:engine"
     integration:
-      available: false
-      tool: null
+      available: true
+      tool: vitest
+      command: "npm run test:sync"
     e2e:
-      available: false
-      tool: null
+      available: true
+      tool: vitest
+      command: "npm run test:e2e"
   coverage:
-    available: false
-    command: null
+    available: true
+    command: "vitest run --coverage"
   quality:
     linter:
-      available: false
-      command: null
-      planned: eslint (per US-001 acceptance: `npm run lint`)
+      available: true
+      command: "npm run lint"
+      tool: eslint 9 flat
     type_checker:
-      available: false
-      command: null
-      planned: tsc --noEmit (per US-001 acceptance: `npm run typecheck`)
+      available: true
+      command: "npm run typecheck"
+      tool: tsc --noEmit
     formatter:
-      available: false
-      command: null
-      planned: prettier
+      available: true
+      command: "npm run format:check"
+      tool: prettier 3
 
 prd_source_of_truth: prd.json

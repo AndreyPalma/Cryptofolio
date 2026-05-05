@@ -72,6 +72,16 @@ export async function buildServer(
     await fastify.register(authPlugin);
   }
 
+  // Domain route plugins — registered after authPlugin so onRequest hook covers them
+  const { walletRoutes } = await import('./routes/wallets.js');
+  const { tokenRoutes } = await import('./routes/tokens.js');
+  const { transactionRoutes } = await import('./routes/transactions.js');
+  const { portfolioRoutes } = await import('./routes/portfolio.js');
+  await fastify.register(walletRoutes, { prefix: '/api/wallets' });
+  await fastify.register(tokenRoutes, { prefix: '/api/tokens' });
+  await fastify.register(transactionRoutes, { prefix: '/api/transactions' });
+  await fastify.register(portfolioRoutes, { prefix: '/api/portfolio' });
+
   // Health route — public, outside /api/* scope
   await fastify.register(healthPlugin);
 
