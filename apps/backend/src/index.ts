@@ -77,10 +77,12 @@ export async function buildServer(
   const { tokenRoutes } = await import('./routes/tokens.js');
   const { transactionRoutes } = await import('./routes/transactions.js');
   const { portfolioRoutes } = await import('./routes/portfolio.js');
+  const { syncRoutes } = await import('./routes/sync.js');
   await fastify.register(walletRoutes, { prefix: '/api/wallets' });
   await fastify.register(tokenRoutes, { prefix: '/api/tokens' });
   await fastify.register(transactionRoutes, { prefix: '/api/transactions' });
   await fastify.register(portfolioRoutes, { prefix: '/api/portfolio' });
+  await fastify.register(syncRoutes, { prefix: '/api/sync' });
 
   // Health route — public, outside /api/* scope
   await fastify.register(healthPlugin);

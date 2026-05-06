@@ -41,3 +41,36 @@ export class NotFoundError extends DomainError {
     Object.setPrototypeOf(this, new.target.prototype);
   }
 }
+
+/** 400 — required env-var/credential not configured for the requested operation. */
+export class ApiKeyMissingError extends DomainError {
+  readonly serviceName: string;
+  constructor(serviceName: string) {
+    super(
+      `API key not configured for service '${serviceName}'`,
+      400,
+      'API_KEY_MISSING',
+    );
+    this.name = 'ApiKeyMissingError';
+    this.serviceName = serviceName;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+/** 502 — upstream third-party API returned an error / timed out / sent bad JSON.
+ *  MUST NOT expose the API key in cause or logs. */
+export class ExternalApiError extends DomainError {
+  readonly serviceName: string;
+  readonly upstreamCause: unknown;
+  constructor(serviceName: string, cause: unknown) {
+    super(
+      `Upstream service '${serviceName}' failed`,
+      502,
+      'EXTERNAL_API_ERROR',
+    );
+    this.name = 'ExternalApiError';
+    this.serviceName = serviceName;
+    this.upstreamCause = cause;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
