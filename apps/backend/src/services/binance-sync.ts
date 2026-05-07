@@ -153,17 +153,18 @@ export class BinanceSyncService {
     binanceSymbol: string,
     onCreated: (n: number) => void,
   ): Promise<string> {
-    // Step 1: optimistic SELECT
+    // Step 1: optimistic SELECT (tokens_unique_cex index: network + lower(symbol))
     const existing = await pgc.query<{ id: string }>(
-      `SELECT id FROM tokens WHERE network = 'CEX_BINANCE' AND lower(contract_address) = lower($1) LIMIT 1`,
+      `SELECT id FROM tokens WHERE network = 'CEX_BINANCE' AND lower(symbol) = lower($1) LIMIT 1`,
       [symbol],
     );
     if (existing.rows[0]) return existing.rows[0].id;
 
     // Step 2: INSERT ON CONFLICT DO NOTHING
+    // contract_address must be NULL for CEX_BINANCE (tokens_source_coherence constraint)
     const inserted = await pgc.query<{ id: string }>(
-      `INSERT INTO tokens (symbol, network, contract_address, decimals, binance_symbol)
-       VALUES ($1, 'CEX_BINANCE', lower($1), 8, $2)
+      `INSERT INTO tokens (symbol, network, decimals, binance_symbol)
+       VALUES ($1, 'CEX_BINANCE', 8, $2)
        ON CONFLICT DO NOTHING
        RETURNING id`,
       [symbol, binanceSymbol],
@@ -175,7 +176,7 @@ export class BinanceSyncService {
 
     // Step 3: re-SELECT (race condition — another worker inserted first)
     const retry = await pgc.query<{ id: string }>(
-      `SELECT id FROM tokens WHERE network = 'CEX_BINANCE' AND lower(contract_address) = lower($1) LIMIT 1`,
+      `SELECT id FROM tokens WHERE network = 'CEX_BINANCE' AND lower(symbol) = lower($1) LIMIT 1`,
       [symbol],
     );
     return retry.rows[0]!.id;
