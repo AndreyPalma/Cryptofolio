@@ -16,7 +16,7 @@ import {
   InsufficientBalanceError,
   InvalidPositionStateError,
 } from '../position-engine/index.js';
-import { NotFoundError, ValidationError } from './errors.js';
+import { NotFoundError } from './errors.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -70,8 +70,8 @@ export class OnChainSyncService {
   async sync(walletId: string, userId: string): Promise<SyncResult> {
     const wallet = await this.loadWallet(walletId, userId);
 
-    if (wallet.wallet_type === 'CEX') {
-      throw new ValidationError('Wallet is not an on-chain wallet', 'NOT_ON_CHAIN_WALLET');
+    if (wallet.wallet_type !== 'ON_CHAIN') {
+      throw new Error(`[OnChainSyncService] invariant violation: expected ON_CHAIN wallet, got ${wallet.wallet_type}`);
     }
 
     const network = wallet.network as 'ETH' | 'BSC';

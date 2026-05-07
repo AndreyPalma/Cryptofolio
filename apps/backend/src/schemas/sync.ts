@@ -1,4 +1,4 @@
-// Zod schemas for the sync route — US-008-A
+// Zod schemas for the sync route — US-008-A / US-008-B
 import { z } from 'zod';
 
 export const SyncParamsSchema = z.object({
@@ -26,3 +26,29 @@ export const SyncResultSchema = z.object({
   newTransactions: z.array(SyncedTxSchema).max(10),
 });
 export type SyncResult = z.infer<typeof SyncResultSchema>;
+
+// ─── BinanceSyncResult — US-008-B ─────────────────────────────────────────────
+
+export const BinanceSyncResultSchema = z.object({
+  trades: z.object({
+    synced: z.number().int().nonnegative(),
+    skipped: z.number().int().nonnegative(),
+    symbolsProcessed: z.number().int().nonnegative(),
+  }),
+  converts: z.object({
+    synced: z.number().int().nonnegative(),
+    skipped: z.number().int().nonnegative(),
+  }),
+  withdrawals: z.object({
+    synced: z.number().int().nonnegative(),
+    skipped: z.number().int().nonnegative(),
+  }),
+  deposits: z.object({
+    synced: z.number().int().nonnegative(),
+    skipped: z.number().int().nonnegative(),
+    inherited: z.number().int().nonnegative(),
+    manual: z.number().int().nonnegative(),
+  }),
+  tokensCreated: z.number().int().nonnegative(),
+});
+export type BinanceSyncResult = z.infer<typeof BinanceSyncResultSchema>;

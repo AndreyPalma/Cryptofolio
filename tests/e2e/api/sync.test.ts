@@ -82,27 +82,37 @@ describe.skipIf(!testUrl)('POST /api/sync/:walletId', () => {
     vi.restoreAllMocks();
   });
 
-  // ── T29: 400 for CEX wallet ─────────────────────────────────────────────────
+  // ── T29: 400 for CEX wallet with no BINANCE_API_KEY ─────────────────────────
+  // After US-008-B, CEX wallets route to BinanceSyncService.
+  // With empty keys, assertConfigured() throws 400 API_KEY_MISSING (not 'not an on-chain wallet').
 
-  it('T29 — 400 for CEX wallet', async () => {
+  it('T29 — 400 for CEX wallet when BINANCE_API_KEY not configured', async () => {
     const fetchSpy = vi.spyOn(global, 'fetch');
     const walletId = await createCexWallet(userId);
 
-    const res = await server.inject({
-      method: 'POST',
-      url: `/api/sync/${walletId}`,
-      headers: { Cookie: cookie },
-    });
+    // Ensure BINANCE_API_KEY is not set (already unset — test env doesn't configure it)
+    const savedKey = process.env.BINANCE_API_KEY;
+    delete process.env.BINANCE_API_KEY;
 
-    expect(res.statusCode).toBe(400);
-    const body = res.json() as { statusCode: number; error: string; message: string };
-    expect(body.message).toContain('not an on-chain wallet');
+    try {
+      const res = await server.inject({
+        method: 'POST',
+        url: `/api/sync/${walletId}`,
+        headers: { Cookie: cookie },
+      });
 
-    // No HTTP call to Etherscan/BSCTrace
-    const externalCalls = fetchSpy.mock.calls.filter(
-      ([url]) => typeof url === 'string' && (url.includes('etherscan') || url.includes('bsctrace')),
-    );
-    expect(externalCalls).toHaveLength(0);
+      expect(res.statusCode).toBe(400);
+      const body = res.json() as { statusCode: number; code?: string; message: string };
+      expect(body.code).toBe('API_KEY_MISSING');
+
+      // No HTTP call to Etherscan/BSCTrace
+      const externalCalls = fetchSpy.mock.calls.filter(
+        ([url]) => typeof url === 'string' && (url.includes('etherscan') || url.includes('bsctrace')),
+      );
+      expect(externalCalls).toHaveLength(0);
+    } finally {
+      if (savedKey !== undefined) process.env.BINANCE_API_KEY = savedKey;
+    }
   });
 
   // ── T30: 400 for missing ETHERSCAN_API_KEY ──────────────────────────────────
