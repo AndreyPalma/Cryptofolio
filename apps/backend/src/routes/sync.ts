@@ -35,7 +35,8 @@ export const syncRoutes: FastifyPluginAsync = async (fastify) => {
       const service = new OnChainSyncService({
         pool, priceService, etherscanClient, bsctraceClient,
       });
-      return service.sync(req.params.walletId);
+      const userId: string = (req.user as { sub?: string }).sub ?? '';
+      return service.sync(req.params.walletId, userId);
     },
   );
 };

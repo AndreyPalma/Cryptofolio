@@ -304,9 +304,10 @@ describe.skipIf(!testUrl)('POST /api/sync/:walletId', () => {
 
     expect(res2.statusCode).toBe(200);
     const body2 = res2.json() as { synced: number; skipped: number };
-    // After updating last_synced_block, the next sync starts from 105
-    // so no new txs match (they're all in 100-104 range)
-    expect(body2.synced + body2.skipped).toBeGreaterThanOrEqual(0);
+    // After updating last_synced_block to 104, the next sync starts from 105
+    // so no txs are returned — Etherscan mock returns same 100-104 range blocks
+    expect(body2.synced).toBe(0);
+    expect(body2.skipped).toBeGreaterThanOrEqual(0);
 
     // Verify exactly 5 rows in transactions for this wallet (no duplicates)
     const txCount = await pool.query<{ count: string }>(

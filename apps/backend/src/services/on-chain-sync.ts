@@ -67,7 +67,7 @@ export class OnChainSyncService {
 
   // ─── Public entry point ────────────────────────────────────────────────────
 
-  async sync(walletId: string, userId?: string): Promise<SyncResult> {
+  async sync(walletId: string, userId: string): Promise<SyncResult> {
     const wallet = await this.loadWallet(walletId, userId);
 
     if (wallet.wallet_type === 'CEX') {
@@ -199,7 +199,7 @@ export class OnChainSyncService {
 
   // ─── Private: loadWallet ──────────────────────────────────────────────────
 
-  private async loadWallet(walletId: string, userId?: string): Promise<WalletRow> {
+  private async loadWallet(walletId: string, userId: string): Promise<WalletRow> {
     const result = await this.deps.pool.query<WalletRow>(
       `SELECT id, user_id, wallet_type, network, address, last_synced_block
          FROM wallets WHERE id = $1`,
@@ -207,12 +207,7 @@ export class OnChainSyncService {
     );
 
     const wallet = result.rows[0];
-    if (!wallet) {
-      throw new NotFoundError('Wallet not found', 'WALLET_NOT_FOUND');
-    }
-
-    // Verify ownership — not revealing existence of wallets from other users
-    if (userId && wallet.user_id !== userId) {
+    if (!wallet || wallet.user_id !== userId) {
       throw new NotFoundError('Wallet not found', 'WALLET_NOT_FOUND');
     }
 

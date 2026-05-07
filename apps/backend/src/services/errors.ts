@@ -47,7 +47,7 @@ export class ApiKeyMissingError extends DomainError {
   readonly serviceName: string;
   constructor(serviceName: string) {
     super(
-      `API key not configured for service '${serviceName}'`,
+      `${serviceName} is not configured`,
       400,
       'API_KEY_MISSING',
     );
@@ -64,7 +64,7 @@ export class ExternalApiError extends DomainError {
   readonly upstreamCause: unknown;
   constructor(serviceName: string, cause: unknown) {
     super(
-      `Upstream service '${serviceName}' failed`,
+      `External API error: ${serviceName}`,
       502,
       'EXTERNAL_API_ERROR',
     );
