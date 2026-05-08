@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { TokenLogo } from "./TokenLogo";
 import { NetworkBadge } from "./NetworkBadge";
 import { PnlDisplay } from "./PnlDisplay";
@@ -72,7 +73,12 @@ export function PortfolioRow({ item }: PortfolioRowProps) {
 
         {/* Symbol + wallet count */}
         <td className="px-4 py-3">
-          <span className="font-medium text-white">{item.symbol}</span>
+          <Link
+            to={`/token/${item.contractAddress ?? ""}/${item.network}`}
+            className="font-medium text-white hover:text-indigo-300 transition-colors"
+          >
+            {item.symbol}
+          </Link>
           {showWalletCount && (
             <span className="ml-2 rounded bg-gray-700 px-1.5 py-0.5 text-xs text-gray-300">
               {item.walletCount} wallets

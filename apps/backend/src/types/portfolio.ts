@@ -38,6 +38,7 @@ export const TokenPortfolioRowSchema = z.object({
   pnlPct: z.string().nullable(),
   walletCount: z.number().int().nonnegative(),
   walletBreakdown: z.array(WalletBreakdownEntrySchema),
+  cycleNumber: z.number().int().nonnegative(),
   priceUnavailable: z.boolean().optional(),
 });
 export type TokenPortfolioRow = z.infer<typeof TokenPortfolioRowSchema>;
@@ -64,6 +65,7 @@ export const InboundPnlSchema = z.object({
 export const OutboundPnlSchema = z.object({
   kind: z.literal('OUTBOUND'),
   displayAs: z.literal('Sold/Out'),
+  realizedPnlUsd: z.string().nullable(),
 });
 
 export const PnlInfoSchema = z.discriminatedUnion('kind', [InboundPnlSchema, OutboundPnlSchema]);
@@ -82,6 +84,10 @@ export const TransactionWithPnlSchema = z.object({
   amount: z.string(),
   priceUsd: z.string().nullable(),
   costSource: z.enum(COST_SOURCES).nullable(),
+  txHash: z.string().nullable(),
+  cexTradeId: z.string().nullable(),
+  relatedTxId: z.string().nullable(),
+  costInheritedFrom: z.enum(['ONCHAIN', 'BINANCE']).nullable(),
   pnl: PnlInfoSchema,
 });
 export type TransactionWithPnl = z.infer<typeof TransactionWithPnlSchema>;

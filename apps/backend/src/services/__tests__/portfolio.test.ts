@@ -315,6 +315,228 @@ describe('getTokenDetail', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// US-010 — Backend DTO Extension tests (Phase 1)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('US-010 schema extensions', () => {
+  it('T-001 [RED] TokenPortfolioRowSchema rejects object missing cycleNumber', async () => {
+    const { TokenPortfolioRowSchema } = await import('../../types/portfolio.js');
+    const row = {
+      symbol: 'WETH', network: 'ETH', sourceType: 'ON_CHAIN',
+      contractAddress: '0xaaa', binanceSymbol: null,
+      totalBalance: '1.0', wacAggregated: '2000.0', totalCostBasis: '2000.0',
+      currentPrice: null, totalCurrentValue: null, pnlUsd: null, pnlPct: null,
+      walletCount: 1, walletBreakdown: [],
+      // cycleNumber intentionally omitted
+    };
+    const result = TokenPortfolioRowSchema.safeParse(row);
+    expect(result.success).toBe(false);
+  });
+
+  it('T-005 [RED] TransactionWithPnlSchema rejects object missing txHash, cexTradeId, relatedTxId', async () => {
+    const { TransactionWithPnlSchema } = await import('../../types/portfolio.js');
+    const tx = {
+      id: 'tx-1', walletId: 'w1', tokenId: 't1', positionId: null,
+      type: 'BUY', source: 'MANUAL', blockTimestamp: '2024-01-01T00:00:00.000Z',
+      amount: '1.0', priceUsd: '2000.0', costSource: 'MARKET',
+      // txHash, cexTradeId, relatedTxId, costInheritedFrom intentionally omitted
+      pnl: { kind: 'INBOUND', lotPnlUsd: '1000.0', lotPnlPct: '50.0' },
+    };
+    const result = TransactionWithPnlSchema.safeParse(tx);
+    expect(result.success).toBe(false);
+  });
+
+  it('T-007 [RED] OutboundPnlSchema rejects object missing realizedPnlUsd', async () => {
+    const { OutboundPnlSchema } = await import('../../types/portfolio.js');
+    const pnl = { kind: 'OUTBOUND', displayAs: 'Sold/Out' /* realizedPnlUsd omitted */ };
+    const result = OutboundPnlSchema.safeParse(pnl);
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('US-010 computePnl extension', () => {
+  it('T-009 [RED] computePnl SELL with both prices returns realizedPnlUsd', async () => {
+    // We test via getTokenDetail which calls computePnl internally
+    const { getTokenDetail } = await import('../portfolio.js');
+    const tokenRow = {
+      id: 'token-1', symbol: 'WETH', name: null, network: 'ETH',
+      contract_address: '0xaaa', decimals: 18, binance_symbol: null,
+      is_hidden: false, target_exit_price: null, created_at: new Date().toISOString(),
+    };
+    const posRow = basePositionRow();
+    const sellTx = {
+      id: 'tx-sell', wallet_id: 'w1', token_id: 'token-1', position_id: 'pos-1',
+      type: 'SELL', source: 'ETHERSCAN', block_timestamp: new Date('2024-01-01'),
+      amount: '1.000000000000000000', price_usd: '2000.000000000000000000',
+      cost_source: 'MARKET',
+      tx_hash: null, cex_trade_id: null, related_tx_id: null,
+    };
+    const queryFn = vi.fn()
+      .mockResolvedValueOnce({ rows: [tokenRow] })
+      .mockResolvedValueOnce({ rows: [posRow] })
+      .mockResolvedValueOnce({ rows: [sellTx] });
+
+    const priceMap = new Map([['onchain:eth:0xaaa', { priceUsd: '3000.00' } as PriceResult]]);
+    const ps = makeStubPriceService({ getOnChainPricesBulk: vi.fn().mockResolvedValue(priceMap) });
+    const pool = makeMockPool(queryFn);
+
+    const detail = await getTokenDetail(pool, ps, '0xaaa', 'ETH');
+    const tx = detail.transactions[0]!;
+
+    expect(tx.pnl.kind).toBe('OUTBOUND');
+    if (tx.pnl.kind === 'OUTBOUND') {
+      // realizedPnlUsd = (3000-2000) × 1 = 1000
+      expect((tx.pnl as { realizedPnlUsd?: string | null }).realizedPnlUsd).toMatch(/^1000/);
+    }
+  });
+
+  it('T-010 [RED] computePnl SELL with null priceUsd returns realizedPnlUsd null', async () => {
+    const { getTokenDetail } = await import('../portfolio.js');
+    const tokenRow = {
+      id: 'token-1', symbol: 'WETH', name: null, network: 'ETH',
+      contract_address: '0xaaa', decimals: 18, binance_symbol: null,
+      is_hidden: false, target_exit_price: null, created_at: new Date().toISOString(),
+    };
+    const posRow = basePositionRow();
+    const sellTx = {
+      id: 'tx-sell-null', wallet_id: 'w1', token_id: 'token-1', position_id: 'pos-1',
+      type: 'SELL', source: 'ETHERSCAN', block_timestamp: new Date('2024-01-01'),
+      amount: '1.000000000000000000', price_usd: null,
+      cost_source: null,
+      tx_hash: null, cex_trade_id: null, related_tx_id: null,
+    };
+    const queryFn = vi.fn()
+      .mockResolvedValueOnce({ rows: [tokenRow] })
+      .mockResolvedValueOnce({ rows: [posRow] })
+      .mockResolvedValueOnce({ rows: [sellTx] });
+
+    const priceMap = new Map([['onchain:eth:0xaaa', { priceUsd: '3000.00' } as PriceResult]]);
+    const ps = makeStubPriceService({ getOnChainPricesBulk: vi.fn().mockResolvedValue(priceMap) });
+    const pool = makeMockPool(queryFn);
+
+    const detail = await getTokenDetail(pool, ps, '0xaaa', 'ETH');
+    const tx = detail.transactions[0]!;
+
+    expect(tx.pnl.kind).toBe('OUTBOUND');
+    if (tx.pnl.kind === 'OUTBOUND') {
+      expect((tx.pnl as { realizedPnlUsd?: string | null }).realizedPnlUsd).toBeNull();
+    }
+  });
+
+  it('T-014 [RED] costInheritedFrom is ONCHAIN for TRANSFER_IN INHERITED ETHERSCAN', async () => {
+    const { getTokenDetail } = await import('../portfolio.js');
+    const tokenRow = {
+      id: 'token-1', symbol: 'WETH', name: null, network: 'ETH',
+      contract_address: '0xaaa', decimals: 18, binance_symbol: null,
+      is_hidden: false, target_exit_price: null, created_at: new Date().toISOString(),
+    };
+    const posRow = basePositionRow();
+    const transferTx = {
+      id: 'tx-transfer', wallet_id: 'w1', token_id: 'token-1', position_id: 'pos-1',
+      type: 'TRANSFER_IN', source: 'ETHERSCAN', block_timestamp: new Date('2024-01-01'),
+      amount: '1.0', price_usd: '2000.0', cost_source: 'INHERITED',
+      tx_hash: '0xabc', cex_trade_id: null, related_tx_id: null,
+    };
+    const queryFn = vi.fn()
+      .mockResolvedValueOnce({ rows: [tokenRow] })
+      .mockResolvedValueOnce({ rows: [posRow] })
+      .mockResolvedValueOnce({ rows: [transferTx] });
+
+    const priceMap = new Map([['onchain:eth:0xaaa', { priceUsd: '3000.00' } as PriceResult]]);
+    const ps = makeStubPriceService({ getOnChainPricesBulk: vi.fn().mockResolvedValue(priceMap) });
+    const pool = makeMockPool(queryFn);
+
+    const detail = await getTokenDetail(pool, ps, '0xaaa', 'ETH');
+    const tx = detail.transactions[0]!;
+
+    expect((tx as { costInheritedFrom?: unknown }).costInheritedFrom).toBe('ONCHAIN');
+  });
+
+  it('T-015 [RED] costInheritedFrom is BINANCE for TRANSFER_IN INHERITED BINANCE', async () => {
+    const { getTokenDetail } = await import('../portfolio.js');
+    const tokenRow = {
+      id: 'token-1', symbol: 'WETH', name: null, network: 'ETH',
+      contract_address: '0xaaa', decimals: 18, binance_symbol: null,
+      is_hidden: false, target_exit_price: null, created_at: new Date().toISOString(),
+    };
+    const posRow = basePositionRow();
+    const transferTx = {
+      id: 'tx-transfer-b', wallet_id: 'w1', token_id: 'token-1', position_id: 'pos-1',
+      type: 'TRANSFER_IN', source: 'BINANCE', block_timestamp: new Date('2024-01-01'),
+      amount: '1.0', price_usd: '2000.0', cost_source: 'INHERITED',
+      tx_hash: null, cex_trade_id: 'cex-123', related_tx_id: null,
+    };
+    const queryFn = vi.fn()
+      .mockResolvedValueOnce({ rows: [tokenRow] })
+      .mockResolvedValueOnce({ rows: [posRow] })
+      .mockResolvedValueOnce({ rows: [transferTx] });
+
+    const priceMap = new Map([['onchain:eth:0xaaa', { priceUsd: '3000.00' } as PriceResult]]);
+    const ps = makeStubPriceService({ getOnChainPricesBulk: vi.fn().mockResolvedValue(priceMap) });
+    const pool = makeMockPool(queryFn);
+
+    const detail = await getTokenDetail(pool, ps, '0xaaa', 'ETH');
+    const tx = detail.transactions[0]!;
+
+    expect((tx as { costInheritedFrom?: unknown }).costInheritedFrom).toBe('BINANCE');
+  });
+
+  it('T-012 [RED] getTokenDetail transactions include txHash, cexTradeId, relatedTxId', async () => {
+    const { getTokenDetail } = await import('../portfolio.js');
+    const tokenRow = {
+      id: 'token-1', symbol: 'WETH', name: null, network: 'ETH',
+      contract_address: '0xaaa', decimals: 18, binance_symbol: null,
+      is_hidden: false, target_exit_price: null, created_at: new Date().toISOString(),
+    };
+    const posRow = basePositionRow();
+    const txWithIds = {
+      id: 'tx-1', wallet_id: 'w1', token_id: 'token-1', position_id: 'pos-1',
+      type: 'SWAP_IN', source: 'ETHERSCAN', block_timestamp: new Date('2024-01-01'),
+      amount: '1.0', price_usd: '2000.0', cost_source: 'MARKET',
+      tx_hash: '0xdeadbeef', cex_trade_id: null, related_tx_id: 'rel-123',
+    };
+    const queryFn = vi.fn()
+      .mockResolvedValueOnce({ rows: [tokenRow] })
+      .mockResolvedValueOnce({ rows: [posRow] })
+      .mockResolvedValueOnce({ rows: [txWithIds] });
+
+    const priceMap = new Map([['onchain:eth:0xaaa', { priceUsd: '3000.00' } as PriceResult]]);
+    const ps = makeStubPriceService({ getOnChainPricesBulk: vi.fn().mockResolvedValue(priceMap) });
+    const pool = makeMockPool(queryFn);
+
+    const detail = await getTokenDetail(pool, ps, '0xaaa', 'ETH');
+    const tx = detail.transactions[0]!;
+
+    expect((tx as { txHash?: unknown }).txHash).toBe('0xdeadbeef');
+    expect((tx as { cexTradeId?: unknown }).cexTradeId).toBeNull();
+    expect((tx as { relatedTxId?: unknown }).relatedTxId).toBe('rel-123');
+  });
+
+  it('T-003 [RED] buildPortfolioRow result includes cycleNumber equal to virtual.cycleNumber', async () => {
+    const { getTokenDetail } = await import('../portfolio.js');
+    const tokenRow = {
+      id: 'token-1', symbol: 'WETH', name: null, network: 'ETH',
+      contract_address: '0xaaa', decimals: 18, binance_symbol: null,
+      is_hidden: false, target_exit_price: null, created_at: new Date().toISOString(),
+    };
+    const posRow = basePositionRow({ cycle_number: 3 });
+    const queryFn = vi.fn()
+      .mockResolvedValueOnce({ rows: [tokenRow] })
+      .mockResolvedValueOnce({ rows: [posRow] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const priceMap = new Map([['onchain:eth:0xaaa', { priceUsd: '3000.00' } as PriceResult]]);
+    const ps = makeStubPriceService({ getOnChainPricesBulk: vi.fn().mockResolvedValue(priceMap) });
+    const pool = makeMockPool(queryFn);
+
+    const detail = await getTokenDetail(pool, ps, '0xaaa', 'ETH');
+
+    expect(detail.position).not.toBeNull();
+    expect((detail.position as { cycleNumber?: unknown }).cycleNumber).toBe(3);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // getPositionHistory
 // ─────────────────────────────────────────────────────────────────────────────
 

@@ -4,6 +4,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { render, fireEvent } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { PortfolioRow } from "../src/components/dashboard/PortfolioRow";
 import type { PortfolioItem } from "../src/types/portfolio";
 
@@ -71,28 +72,39 @@ const priceUnavailableWithValuesItem: PortfolioItem = {
   pnlPct: "25.00",
 };
 
-describe("PortfolioRow", () => {
-  it("collapsed by default: expanded sub-row NOT in DOM", () => {
-    const { container } = render(
+function renderRow(item: PortfolioItem) {
+  return render(
+    <MemoryRouter>
       <table>
         <tbody>
-          <PortfolioRow item={baseItem} />
+          <PortfolioRow item={item} />
         </tbody>
-      </table>,
-    );
+      </table>
+    </MemoryRouter>,
+  );
+}
+
+describe("PortfolioRow", () => {
+  it("T-061: symbol cell renders a Link navigating to /token/:contractAddress/:network", () => {
+    const itemWithAddress: PortfolioItem = {
+      ...baseItem,
+      contractAddress: "0xabc",
+    };
+    const { container } = renderRow(itemWithAddress);
+    const link = container.querySelector("a[href='/token/0xabc/ETH']");
+    expect(link).not.toBeNull();
+    expect(link?.textContent).toContain("ETH");
+  });
+
+  it("collapsed by default: expanded sub-row NOT in DOM", () => {
+    const { container } = renderRow(baseItem);
     // Should only be 1 tr initially
     const trs = container.querySelectorAll("tr");
     expect(trs.length).toBe(1);
   });
 
   it("click expand button: aria-expanded becomes true, PortfolioRowExpanded renders", () => {
-    const { container } = render(
-      <table>
-        <tbody>
-          <PortfolioRow item={baseItem} />
-        </tbody>
-      </table>,
-    );
+    const { container } = renderRow(baseItem);
     const button = container.querySelector("button");
     expect(button).not.toBeNull();
 
@@ -105,13 +117,7 @@ describe("PortfolioRow", () => {
   });
 
   it("click expand again: collapses, sub-row removed", () => {
-    const { container } = render(
-      <table>
-        <tbody>
-          <PortfolioRow item={baseItem} />
-        </tbody>
-      </table>,
-    );
+    const { container } = renderRow(baseItem);
     const button = container.querySelector("button")!;
 
     fireEvent.click(button);
@@ -123,13 +129,7 @@ describe("PortfolioRow", () => {
   });
 
   it("priceUnavailable=true: Current Price cell renders '—'", () => {
-    const { container } = render(
-      <table>
-        <tbody>
-          <PortfolioRow item={priceUnavailableItem} />
-        </tbody>
-      </table>,
-    );
+    const { container } = renderRow(priceUnavailableItem);
     // Look for the price unavailable dash in the cells
     const cells = container.querySelectorAll("td");
     const dashCells = Array.from(cells).filter(
@@ -139,71 +139,35 @@ describe("PortfolioRow", () => {
   });
 
   it("ON_CHAIN with walletCount > 1: renders wallet-count pill", () => {
-    const { container } = render(
-      <table>
-        <tbody>
-          <PortfolioRow item={multiWalletItem} />
-        </tbody>
-      </table>,
-    );
+    const { container } = renderRow(multiWalletItem);
     expect(container.textContent).toContain("3 wallets");
   });
 
   it("ON_CHAIN with walletCount=1: no wallet-count pill", () => {
-    const { container } = render(
-      <table>
-        <tbody>
-          <PortfolioRow item={baseItem} />
-        </tbody>
-      </table>,
-    );
+    const { container } = renderRow(baseItem);
     expect(container.textContent).not.toContain("wallets");
   });
 
   it("CEX row: no wallet-count pill", () => {
-    const { container } = render(
-      <table>
-        <tbody>
-          <PortfolioRow item={cexItem} />
-        </tbody>
-      </table>,
-    );
+    const { container } = renderRow(cexItem);
     expect(container.textContent).not.toContain("wallets");
   });
 
   it("renders NetworkBadge component", () => {
-    const { container } = render(
-      <table>
-        <tbody>
-          <PortfolioRow item={baseItem} />
-        </tbody>
-      </table>,
-    );
+    const { container } = renderRow(baseItem);
     // NetworkBadge renders a span with a network label
     expect(container.textContent).toContain("Ethereum");
   });
 
   it("renders TokenLogo component (wrapper div present)", () => {
-    const { container } = render(
-      <table>
-        <tbody>
-          <PortfolioRow item={baseItem} />
-        </tbody>
-      </table>,
-    );
+    const { container } = renderRow(baseItem);
     // TokenLogo renders a div wrapper
     const logoWrapper = container.querySelector("td div");
     expect(logoWrapper).not.toBeNull();
   });
 
   it("priceUnavailable=true with non-null values: value/price cells still render '—'", () => {
-    const { container } = render(
-      <table>
-        <tbody>
-          <PortfolioRow item={priceUnavailableWithValuesItem} />
-        </tbody>
-      </table>,
-    );
+    const { container } = renderRow(priceUnavailableWithValuesItem);
     // Price cell and value cell must show dash even when values are non-null
     const cells = container.querySelectorAll("td");
     const dashCells = Array.from(cells).filter(

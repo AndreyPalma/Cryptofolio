@@ -53,6 +53,9 @@ interface TxRow {
   amount: string;
   price_usd: string | null;
   cost_source: CostSource | null;
+  tx_hash: string | null;
+  cex_trade_id: string | null;
+  related_tx_id: string | null;
 }
 
 // ─── SQL base ─────────────────────────────────────────────────────────────────
@@ -152,6 +155,7 @@ function buildPortfolioRow(rows: PositionRow[], priceResult: PriceResult): Token
       balance: r.balance,
       wac: r.wac,
     })),
+    cycleNumber: virtual.cycleNumber,
     priceUnavailable: 'priceUnavailable' in priceResult ? true : undefined,
   };
 }
@@ -177,7 +181,13 @@ function computePnl(
       : roundToStorage(currentD.minus(priceD).div(priceD).times(100));
     return { kind: 'INBOUND', lotPnlUsd, lotPnlPct };
   }
-  return { kind: 'OUTBOUND', displayAs: 'Sold/Out' };
+  // OUTBOUND: SELL, SWAP_OUT, TRANSFER_OUT
+  // realizedPnlUsd = (currentPrice - priceUsd) × amount; null when either price is null
+  const realizedPnlUsd =
+    priceUsd !== null && currentPrice !== null
+      ? roundToStorage(toDecimal(currentPrice).minus(toDecimal(priceUsd)).times(toDecimal(amount)))
+      : null;
+  return { kind: 'OUTBOUND', displayAs: 'Sold/Out', realizedPnlUsd };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -355,7 +365,8 @@ export async function getTokenDetail(
   const positionIds = posRows.map((r) => r.position_id);
   const txResult = await pool.query<TxRow>(
     `SELECT id, wallet_id, token_id, position_id, type, source,
-            block_timestamp, amount, price_usd, cost_source
+            block_timestamp, amount, price_usd, cost_source,
+            tx_hash, cex_trade_id, related_tx_id
        FROM transactions
       WHERE token_id = $1
         AND position_id = ANY($2::uuid[])
@@ -370,6 +381,14 @@ export async function getTokenDetail(
       tx.block_timestamp instanceof Date
         ? tx.block_timestamp.toISOString()
         : String(tx.block_timestamp);
+
+    // Derive costInheritedFrom for INHERITED rows.
+    // V1 rule: BINANCE source → 'BINANCE', else → 'ONCHAIN'
+    let costInheritedFrom: 'ONCHAIN' | 'BINANCE' | null = null;
+    if (tx.cost_source === 'INHERITED') {
+      costInheritedFrom = tx.source === 'BINANCE' ? 'BINANCE' : 'ONCHAIN';
+    }
+
     return {
       id: tx.id,
       walletId: tx.wallet_id,
@@ -381,6 +400,10 @@ export async function getTokenDetail(
       amount: tx.amount,
       priceUsd: tx.price_usd ?? null,
       costSource: tx.cost_source ?? null,
+      txHash: tx.tx_hash ?? null,
+      cexTradeId: tx.cex_trade_id ?? null,
+      relatedTxId: tx.related_tx_id ?? null,
+      costInheritedFrom,
       pnl: computePnl(tx.type, tx.price_usd ?? null, currentPrice, tx.amount),
     };
   });

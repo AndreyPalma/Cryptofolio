@@ -2,8 +2,10 @@
  * router.tsx — createBrowserRouter config + ProtectedRoute.
  *
  * Route structure:
- *   /login  → LoginPage (public)
- *   /       → ProtectedRoute → DashboardPage (protected)
+ *   /login                             → LoginPage (public)
+ *   /                                  → ProtectedRoute → DashboardPage (protected)
+ *   /token/:contractAddress/:network   → ProtectedRoute → TokenDetailPage (protected)
+ *   /token/:contractAddress/:network/history → ProtectedRoute → PositionHistoryPage (protected)
  *
  * AuthProvider MUST wrap RouterProvider in App.tsx.
  */
@@ -11,6 +13,8 @@ import { createBrowserRouter, Navigate } from "react-router-dom";
 import { useAuth } from "../lib/auth-context";
 import { LoginPage } from "../pages/LoginPage";
 import { DashboardPage } from "../pages/DashboardPage";
+import { TokenDetailPage } from "../pages/TokenDetailPage";
+import { PositionHistoryPage } from "../pages/PositionHistoryPage";
 
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth();
@@ -30,6 +34,22 @@ export const router = createBrowserRouter([
     element: (
       <ProtectedRoute>
         <DashboardPage />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: "/token/:contractAddress/:network",
+    element: (
+      <ProtectedRoute>
+        <TokenDetailPage />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: "/token/:contractAddress/:network/history",
+    element: (
+      <ProtectedRoute>
+        <PositionHistoryPage />
       </ProtectedRoute>
     ),
   },
