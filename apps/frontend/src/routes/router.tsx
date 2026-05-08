@@ -3,14 +3,14 @@
  *
  * Route structure:
  *   /login  → LoginPage (public)
- *   /       → ProtectedRoute → DashboardPlaceholder (protected)
+ *   /       → ProtectedRoute → DashboardPage (protected)
  *
  * AuthProvider MUST wrap RouterProvider in App.tsx.
  */
 import { createBrowserRouter, Navigate } from "react-router-dom";
 import { useAuth } from "../lib/auth-context";
 import { LoginPage } from "../pages/LoginPage";
-import { DashboardPlaceholder } from "../pages/DashboardPlaceholder";
+import { DashboardPage } from "../pages/DashboardPage";
 
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth();
@@ -29,7 +29,7 @@ export const router = createBrowserRouter([
     path: "/",
     element: (
       <ProtectedRoute>
-        <DashboardPlaceholder />
+        <DashboardPage />
       </ProtectedRoute>
     ),
   },

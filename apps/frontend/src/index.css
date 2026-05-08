@@ -1,1 +1,7 @@
 @import "tailwindcss";
+
+@theme {
+  --color-binance: #F0B90B;
+  --color-pnl-positive: #22C55E;
+  --color-pnl-negative: #EF4444;
+}
