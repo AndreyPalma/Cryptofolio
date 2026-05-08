@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { usePortfolio } from "../hooks/usePortfolio";
 import { useRelativeTime } from "../hooks/useRelativeTime";
 import { SummaryCards } from "../components/dashboard/SummaryCards";
@@ -94,12 +95,20 @@ export function DashboardPage() {
     <main className="min-h-screen bg-gray-950 p-6 text-white">
       <header className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Portfolio</h1>
-        <RefreshIndicator
-          relativeTime={relativeTime}
-          isRefetching={isRefetching}
-          stale={error !== null}
-          onRetry={refresh}
-        />
+        <div className="flex items-center gap-3">
+          <Link
+            to="/transactions/new"
+            className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-500"
+          >
+            Add Transaction
+          </Link>
+          <RefreshIndicator
+            relativeTime={relativeTime}
+            isRefetching={isRefetching}
+            stale={error !== null}
+            onRetry={refresh}
+          />
+        </div>
       </header>
 
       <SummaryCards

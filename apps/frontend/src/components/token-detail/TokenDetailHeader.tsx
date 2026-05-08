@@ -55,6 +55,24 @@ export function TokenDetailHeader({
           />
         )}
 
+        {/* Add Transaction button — only when walletBreakdown has at least one entry */}
+        {(() => {
+          const firstWalletId = position?.walletBreakdown[0]?.walletId;
+          if (!firstWalletId) return null;
+          const params = new URLSearchParams({
+            wallet_id: firstWalletId,
+            token_id: token.id,
+          });
+          return (
+            <Link
+              to={`/transactions/new?${params.toString()}`}
+              className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-500"
+            >
+              Add Transaction
+            </Link>
+          );
+        })()}
+
         {/* Closed cycles link */}
         {cycleCount > 0 && (
           <Link

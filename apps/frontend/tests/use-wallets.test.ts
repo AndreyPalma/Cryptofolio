@@ -26,6 +26,13 @@ vi.mock("../src/lib/api-client", () => ({
   },
 }));
 
+// Raw API response (snake_case) — what the backend actually returns
+const mockWalletsRaw = [
+  { id: "w1", user_id: "u1", wallet_type: "ON_CHAIN", address: "0xabc", network: "ETH", label: "My Wallet", last_synced_at: null, created_at: "2024-01-01T00:00:00.000Z" },
+  { id: "w2", user_id: "u1", wallet_type: "ON_CHAIN", address: "0xdef", network: "BSC", label: null, last_synced_at: null, created_at: "2024-01-01T00:00:00.000Z" },
+];
+
+// Expected camelCase output after transform
 const mockWallets: WalletEntry[] = [
   { id: "w1", label: "My Wallet", walletType: "ON_CHAIN", network: "ETH" },
   { id: "w2", label: null, walletType: "ON_CHAIN", network: "BSC" },
@@ -45,7 +52,7 @@ describe("useWallets", () => {
   });
 
   it("T-030: one-shot fetch from /api/wallets, populates data", async () => {
-    mockGet.mockResolvedValue(mockWallets);
+    mockGet.mockResolvedValue(mockWalletsRaw);
 
     const { result } = renderHook(() => useWallets());
 
