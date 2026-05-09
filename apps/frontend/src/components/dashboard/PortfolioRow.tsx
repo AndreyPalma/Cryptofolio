@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { TokenLogo } from "./TokenLogo";
 import { NetworkBadge } from "./NetworkBadge";
 import { PnlDisplay } from "./PnlDisplay";
@@ -13,6 +13,10 @@ interface PortfolioRowProps {
 
 export function PortfolioRow({ item }: PortfolioRowProps) {
   const [expanded, setExpanded] = useState(false);
+  const navigate = useNavigate();
+  const detailPath = item.contractAddress
+    ? `/token/${item.contractAddress}/${item.network}`
+    : null;
 
   const priceCell =
     item.priceUnavailable === true || item.currentPrice === null ? (
@@ -33,7 +37,14 @@ export function PortfolioRow({ item }: PortfolioRowProps) {
 
   return (
     <>
-      <tr className="border-b border-gray-800">
+      <tr
+        className={`border-b border-gray-800 ${detailPath ? "cursor-pointer hover:bg-gray-900/50" : ""}`}
+        onClick={(e) => {
+          // Don't navigate if clicking the expand button
+          if ((e.target as HTMLElement).closest("button")) return;
+          if (detailPath) void navigate(detailPath);
+        }}
+      >
         {/* Expand toggle */}
         <td className="w-8 px-2 py-3">
           <button
@@ -73,12 +84,17 @@ export function PortfolioRow({ item }: PortfolioRowProps) {
 
         {/* Symbol + wallet count */}
         <td className="px-4 py-3">
-          <Link
-            to={`/token/${item.contractAddress ?? ""}/${item.network}`}
-            className="font-medium text-white hover:text-indigo-300 transition-colors"
-          >
-            {item.symbol}
-          </Link>
+          {detailPath ? (
+            <Link
+              to={detailPath}
+              className="font-medium text-white hover:text-indigo-300 transition-colors underline-offset-2 hover:underline"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {item.symbol}
+            </Link>
+          ) : (
+            <span className="font-medium text-white">{item.symbol}</span>
+          )}
           {showWalletCount && (
             <span className="ml-2 rounded bg-gray-700 px-1.5 py-0.5 text-xs text-gray-300">
               {item.walletCount} wallets

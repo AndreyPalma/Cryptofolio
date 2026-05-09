@@ -37,7 +37,7 @@ export function TokenDetailPage() {
 
   if (loading && data === null) {
     return (
-      <main className="p-6">
+      <main className="min-h-screen bg-gray-950 p-6 text-white">
         <Link to="/" className="mb-4 inline-block text-sm text-gray-400 hover:text-white">
           ← Portfolio
         </Link>
@@ -47,7 +47,7 @@ export function TokenDetailPage() {
   }
 
   return (
-    <main className="p-6">
+    <main className="min-h-screen bg-gray-950 p-6 text-white">
       <Link to="/" className="mb-4 inline-block text-sm text-gray-400 hover:text-white">
         ← Portfolio
       </Link>

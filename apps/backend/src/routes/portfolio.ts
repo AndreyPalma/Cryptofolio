@@ -2,15 +2,13 @@
 
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
-import pg from 'pg';
 import { getPortfolioSummary, getTokenDetail, getPositionHistory } from '../services/portfolio.js';
 import { createPriceService } from '../services/price.js';
 import { TokenNetworkSchema } from '../types/portfolio.js';
 import { BalanceValidatorService } from '../services/balance-validator.js';
 import { createBinanceApiClient } from '../sync/clients/binance-api.js';
 import { NotFoundError } from '../services/errors.js';
-
-const { Pool } = pg;
+import { pool } from '../db/pool.js';
 
 const TokenParamsSchema = z.object({
   contractAddress: z.string().min(1),
@@ -22,7 +20,6 @@ const TokenDetailQuerySchema = z.object({
 });
 
 export const portfolioRoutes: FastifyPluginAsync = async (fastify) => {
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   const priceService = createPriceService(fastify.log);
 
   // GET /api/portfolio

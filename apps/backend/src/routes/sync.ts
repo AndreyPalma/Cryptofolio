@@ -5,7 +5,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import pg from 'pg';
 import { OnChainSyncService } from '../services/on-chain-sync.js';
 import { BinanceSyncService } from '../services/binance-sync.js';
 import { createPriceService } from '../services/price.js';
@@ -14,11 +13,9 @@ import { createBSCTraceClient } from '../sync/clients/bsctrace.js';
 import { createBinanceApiClient } from '../sync/clients/binance-api.js';
 import { SyncParamsSchema } from '../schemas/sync.js';
 import { NotFoundError } from '../services/errors.js';
-
-const { Pool } = pg;
+import { pool } from '../db/pool.js';
 
 export const syncRoutes: FastifyPluginAsync = async (fastify) => {
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   const priceService = createPriceService(fastify.log);
 
   fastify.withTypeProvider<ZodTypeProvider>().post(

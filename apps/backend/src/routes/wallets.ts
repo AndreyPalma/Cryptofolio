@@ -4,10 +4,8 @@
 
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
-import pg from 'pg';
 import { createWallet, findAll, findById, updateWallet, deleteWallet } from '../services/wallet.js';
-
-const { Pool } = pg;
+import { pool } from '../db/pool.js';
 
 const CreateWalletBodySchema = z.object({
   wallet_type: z.enum(['ON_CHAIN', 'CEX']),
@@ -26,7 +24,6 @@ const WalletIdParamsSchema = z.object({
 
 // eslint-disable-next-line @typescript-eslint/require-await -- FastifyPluginAsync requires async signature; no top-level await needed here
 export const walletRoutes: FastifyPluginAsync = async (fastify) => {
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
   // POST / — create wallet
   fastify.post('/', async (request, reply) => {

@@ -97,6 +97,12 @@ export function DashboardPage() {
         <h1 className="text-2xl font-semibold">Portfolio</h1>
         <div className="flex items-center gap-3">
           <Link
+            to="/settings"
+            className="rounded-md bg-gray-800 px-3 py-1.5 text-sm font-semibold text-gray-300 hover:bg-gray-700 hover:text-white"
+          >
+            ⚙ Settings
+          </Link>
+          <Link
             to="/transactions/new"
             className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-500"
           >

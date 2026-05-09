@@ -4,10 +4,8 @@
 
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
-import pg from 'pg';
 import { createToken, findAll, updateToken } from '../services/token.js';
-
-const { Pool } = pg;
+import { pool } from '../db/pool.js';
 
 const CreateTokenBodySchema = z.object({
   symbol: z.string().min(1),
@@ -38,7 +36,6 @@ const TokenQuerySchema = z.object({
 
 // eslint-disable-next-line @typescript-eslint/require-await -- FastifyPluginAsync requires async signature; no top-level await needed here
 export const tokenRoutes: FastifyPluginAsync = async (fastify) => {
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
   // GET / — list tokens with optional filters
   fastify.get('/', async (request, reply) => {

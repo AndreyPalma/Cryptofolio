@@ -4,13 +4,12 @@
 
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
-import pg from 'pg';
 import { createTransaction, listTransactions } from '../services/transaction.js';
 import { InsufficientBalanceError } from '../position-engine/index.js';
-
-const { Pool } = pg;
+import { pool } from '../db/pool.js';
 
 // Pending price SQL — US-012 A6
+// Single-user app: resolve user_id via subquery instead of relying on JWT sub (which is "admin", not a UUID).
 const PENDING_PRICE_SQL = `
 WITH pending AS (
   SELECT
@@ -27,7 +26,7 @@ WITH pending AS (
   FROM transactions t
   JOIN tokens tk ON tk.id = t.token_id
   JOIN wallets w ON w.id = t.wallet_id
-  WHERE w.user_id = $1
+  WHERE w.user_id = (SELECT id FROM users LIMIT 1)
     AND t.type = 'TRANSFER_IN'
     AND t.cost_source = 'MANUAL'
     AND t.price_usd IS NULL
@@ -38,7 +37,7 @@ SELECT
   (SELECT COUNT(*)::int
      FROM transactions t
      JOIN wallets w ON w.id = t.wallet_id
-     WHERE w.user_id = $1
+     WHERE w.user_id = (SELECT id FROM users LIMIT 1)
        AND t.type = 'TRANSFER_IN'
        AND t.cost_source = 'MANUAL'
        AND t.price_usd IS NULL) AS total_count,
@@ -67,7 +66,6 @@ const ListTransactionsQuerySchema = z.object({
 
 // eslint-disable-next-line @typescript-eslint/require-await -- FastifyPluginAsync requires async signature; no top-level await needed here
 export const transactionRoutes: FastifyPluginAsync = async (fastify) => {
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
   // POST / — create manual transaction
   fastify.post('/', async (request, reply) => {
@@ -117,12 +115,9 @@ export const transactionRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // GET /pending-price — list TRANSFER_IN without a price — US-012 A6
-  fastify.get('/pending-price', async (request, reply) => {
-    const userId: string = (request.user as { sub?: string } | undefined)?.sub ?? 'unknown';
-
+  fastify.get('/pending-price', async (_request, reply) => {
     const result = await pool.query<{ total_count: string; items: string | null }>(
       PENDING_PRICE_SQL,
-      [userId],
     );
 
     const row = result.rows[0];
