@@ -1,0 +1,13 @@
+change: US-012-settings-ui
+status: archived
+archived_at: 2026-05-09
+commit: 03efddc
+test_results:
+  backend: 291 passing
+  frontend: 474 passing
+verdict: PASS
+summary: >
+  Settings UI completa — wallets, CEX, tokens, API keys, balance validation.
+  Backend: 6 endpoints nuevos/modificados + fix BinanceSyncService.last_synced_at.
+  Frontend: SettingsPage con 6 secciones modulares + 7 hooks + 9 componentes.
+  474 frontend tests + 291 backend tests.
