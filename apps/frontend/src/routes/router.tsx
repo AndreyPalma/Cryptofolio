@@ -16,6 +16,7 @@ import { DashboardPage } from "../pages/DashboardPage";
 import { TokenDetailPage } from "../pages/TokenDetailPage";
 import { PositionHistoryPage } from "../pages/PositionHistoryPage";
 import { AddTransactionPage } from "../pages/AddTransactionPage";
+import { SettingsPage } from "../pages/settings/SettingsPage";
 
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth();
@@ -59,6 +60,14 @@ export const router = createBrowserRouter([
     element: (
       <ProtectedRoute>
         <AddTransactionPage />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: "/settings",
+    element: (
+      <ProtectedRoute>
+        <SettingsPage />
       </ProtectedRoute>
     ),
   },

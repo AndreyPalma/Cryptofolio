@@ -110,6 +110,14 @@ export class BinanceSyncService {
       const withdrawalsResult = await this.syncWithdrawals(pgc, walletId, (n) => { tokensCreated += n; });
       const depositsResult = await this.syncDeposits(pgc, walletId, (n) => { tokensCreated += n; });
 
+      // Best-effort: update last_synced_at. If this fails, sync data is already persisted — do not propagate.
+      try {
+        await pgc.query('UPDATE wallets SET last_synced_at = now() WHERE id = $1', [walletId]);
+      } catch (err) {
+        // eslint-disable-next-line no-console -- logger not injected at this level; best-effort only
+        console.error('[BinanceSyncService] Failed to update last_synced_at after sync — best-effort', err);
+      }
+
       return {
         trades: tradesResult,
         converts: convertsResult,
