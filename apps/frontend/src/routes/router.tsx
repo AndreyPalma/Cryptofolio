@@ -9,8 +9,8 @@
  *
  * AuthProvider MUST wrap RouterProvider in App.tsx.
  */
-import { createBrowserRouter, Navigate } from "react-router-dom";
-import { useAuth } from "../lib/auth-context";
+import { createBrowserRouter, Navigate, Outlet } from "react-router-dom";
+import { useAuth, AuthBridge } from "../lib/auth-context";
 import { LoginPage } from "../pages/LoginPage";
 import { DashboardPage } from "../pages/DashboardPage";
 import { TokenDetailPage } from "../pages/TokenDetailPage";
@@ -26,49 +26,40 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function RootLayout() {
+  return (
+    <>
+      <AuthBridge />
+      <Outlet />
+    </>
+  );
+}
+
 export const router = createBrowserRouter([
   {
-    path: "/login",
-    element: <LoginPage />,
-  },
-  {
-    path: "/",
-    element: (
-      <ProtectedRoute>
-        <DashboardPage />
-      </ProtectedRoute>
-    ),
-  },
-  {
-    path: "/token/:contractAddress/:network",
-    element: (
-      <ProtectedRoute>
-        <TokenDetailPage />
-      </ProtectedRoute>
-    ),
-  },
-  {
-    path: "/token/:contractAddress/:network/history",
-    element: (
-      <ProtectedRoute>
-        <PositionHistoryPage />
-      </ProtectedRoute>
-    ),
-  },
-  {
-    path: "/transactions/new",
-    element: (
-      <ProtectedRoute>
-        <AddTransactionPage />
-      </ProtectedRoute>
-    ),
-  },
-  {
-    path: "/settings",
-    element: (
-      <ProtectedRoute>
-        <SettingsPage />
-      </ProtectedRoute>
-    ),
+    element: <RootLayout />,
+    children: [
+      { path: "/login", element: <LoginPage /> },
+      {
+        path: "/",
+        element: <ProtectedRoute><DashboardPage /></ProtectedRoute>,
+      },
+      {
+        path: "/token/:contractAddress/:network",
+        element: <ProtectedRoute><TokenDetailPage /></ProtectedRoute>,
+      },
+      {
+        path: "/token/:contractAddress/:network/history",
+        element: <ProtectedRoute><PositionHistoryPage /></ProtectedRoute>,
+      },
+      {
+        path: "/transactions/new",
+        element: <ProtectedRoute><AddTransactionPage /></ProtectedRoute>,
+      },
+      {
+        path: "/settings",
+        element: <ProtectedRoute><SettingsPage /></ProtectedRoute>,
+      },
+    ],
   },
 ]);

@@ -33,12 +33,12 @@ export function useAuth(): AuthContextValue {
 /**
  * AuthBridge — must be rendered INSIDE the router tree so useNavigate works.
  * It registers the redirectToLogin function with apiClient.
+ * Render it in a root layout component inside RouterProvider.
  */
-function AuthBridge({ redirectToLogin }: { redirectToLogin: () => void }) {
+export function AuthBridge() {
   const navigate = useNavigate();
+  const { redirectToLogin } = useAuth();
 
-  // Register navigate-based redirect with apiClient on mount and whenever
-  // redirectToLogin identity changes.
   React.useEffect(() => {
     const fn = () => {
       redirectToLogin();
@@ -84,7 +84,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider value={value}>
-      <AuthBridge redirectToLogin={redirectToLogin} />
       {children}
     </AuthContext.Provider>
   );
