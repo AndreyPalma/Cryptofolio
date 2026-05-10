@@ -20,7 +20,10 @@
       "Bash(npx vitest *)",
       "Bash(grep -E \"\\\\.\\(ts|sql\\)$\")",
       "Bash(npx tsc *)",
-      "mcp__plugin_engram_engram__mem_update"
+      "mcp__plugin_engram_engram__mem_update",
+      "Bash(node -e \"JSON.parse\\(require\\('fs'\\).readFileSync\\('d:/Progra/Proyectos/Cryptofolio/.agents/tasks/prd-binance-sync-fix.json','utf8'\\)\\); console.log\\('OK'\\)\")",
+      "Bash(node -e \"const p = JSON.parse\\(require\\('fs'\\).readFileSync\\('d:/Progra/Proyectos/Cryptofolio/.agents/tasks/prd-binance-sync-fix.json','utf8'\\)\\); console.log\\('JSON OK | version:', p.version, '| stories:', p.stories.map\\(s => s.id\\).join\\(', '\\), '| RDs:', p.resolvedDecisions.length, '| routes:', p.routes.length\\);\")",
+      "Bash(node -e \"const p = JSON.parse\\(require\\('fs'\\).readFileSync\\('d:/Progra/Proyectos/Cryptofolio/.agents/tasks/prd-binance-sync-fix.json','utf8'\\)\\); console.log\\('JSON OK | version:', p.version, '| stories:', p.stories.map\\(s => s.id + \\(s.dependsOn.length ? '['+s.dependsOn.join\\(','\\)+']' : ''\\)\\).join\\(', '\\), '| RDs:', p.resolvedDecisions.length, '| dataModel:', p.dataModel.length, '| rules:', p.rules.length\\);\")"
     ]
   }
 }
