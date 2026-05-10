@@ -13,14 +13,14 @@ const usdFormatter = new Intl.NumberFormat("en-US", {
 });
 
 export function formatUsd(value: DecimalString | number | null): string {
-  if (value === null || value === undefined) return "—";
+  if (value === null) return "—";
   const n = typeof value === "number" ? value : parseFloat(value);
   if (Number.isNaN(n)) return "—";
   return usdFormatter.format(n);
 }
 
 export function formatPct(value: DecimalString | number | null): string {
-  if (value === null || value === undefined) return "—";
+  if (value === null) return "—";
   const n = typeof value === "number" ? value : parseFloat(value);
   if (Number.isNaN(n)) return "—";
   const sign = n > 0 ? "+" : "";
@@ -28,7 +28,7 @@ export function formatPct(value: DecimalString | number | null): string {
 }
 
 export function formatCrypto(value: DecimalString | number | null): string {
-  if (value === null || value === undefined) return "—";
+  if (value === null) return "—";
   const n = typeof value === "number" ? value : parseFloat(value);
   if (Number.isNaN(n)) return "—";
   // 8 significant figures, no scientific notation, drop trailing zeros

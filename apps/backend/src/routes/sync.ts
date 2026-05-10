@@ -24,6 +24,7 @@ function writeSse(raw: ServerResponse, data: Record<string, unknown>): void {
 }
 
 export const syncRoutes: FastifyPluginAsync = async (fastify) => {
+  await Promise.resolve();
   const priceService = createPriceService(fastify.log);
 
   async function validateWalletOwnership(
@@ -115,6 +116,7 @@ export const syncRoutes: FastifyPluginAsync = async (fastify) => {
           emit({ step: 'complete', status: 'done', summary: result });
         }
       } catch (err) {
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
         if (!clientDisconnected) {
           const message = err instanceof Error ? err.message : String(err);
           if (message !== 'ABORTED') {
@@ -152,12 +154,12 @@ export const syncRoutes: FastifyPluginAsync = async (fastify) => {
         if (wallet.wallet_type === 'ON_CHAIN') {
           const onChainService = createOnChainService();
           const result = await onChainService.sync(walletId, userId, { signal: ac.signal });
-          return reply.send(result);
+          return await reply.send(result);
         }
 
         const binanceService = createBinanceService();
         const result = await binanceService.sync(walletId, userId, { signal: ac.signal });
-        return reply.send(result);
+        return await reply.send(result);
       } finally {
         orchestrator.releaseLock(walletId);
       }

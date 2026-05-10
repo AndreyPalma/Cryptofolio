@@ -7,10 +7,10 @@ export interface UseRelativeTimeResult {
 
 function computeLabel(seconds: number): string {
   if (seconds < 60) {
-    return `Updated ${seconds}s ago`;
+    return `Updated ${String(seconds)}s ago`;
   }
   if (seconds < 3600) {
-    return `Updated ${Math.floor(seconds / 60)}m ago`;
+    return `Updated ${String(Math.floor(seconds / 60))}m ago`;
   }
   return "Updated 1h+ ago";
 }

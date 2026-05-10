@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { apiClient, UnauthorizedError } from "../lib/api-client";
 import type { DecimalString, Network } from "../types/portfolio";
 
@@ -82,7 +82,7 @@ export function useClosedPositions(
   const dataRef = useRef<ClosedPositionsResponse | null>(null);
   dataRef.current = data;
 
-  const fetchClosedPositions = async (): Promise<void> => {
+  const fetchClosedPositions = useCallback(async (): Promise<void> => {
     if (isFetchingRef.current) return;
     isFetchingRef.current = true;
 
@@ -110,13 +110,13 @@ export function useClosedPositions(
       }
       isFetchingRef.current = false;
     }
-  };
+  }, [walletId, network, from, to]);
 
-  const refresh = (): void => {
+  const refresh = useCallback((): void => {
     void fetchClosedPositions().catch(() => {
       // Unauthorized redirects are handled by apiClient.
     });
-  };
+  }, [fetchClosedPositions]);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -130,7 +130,7 @@ export function useClosedPositions(
     return () => {
       isMountedRef.current = false;
     };
-  }, [walletId, network, from, to]);
+  }, [refresh]);
 
   return { data, loading, error, refresh };
 }

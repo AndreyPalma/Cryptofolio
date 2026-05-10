@@ -186,7 +186,7 @@ export function PositionCyclesSection({
 
           {closedCycles.map((cycle) => (
             <CycleCard
-              key={`${cycle.cycleNumber}-${cycle.walletId}`}
+              key={`${String(cycle.cycleNumber)}-${cycle.walletId}`}
               cycleNumber={cycle.cycleNumber}
               openedAt={cycle.openedAt}
               closedAt={cycle.closedAt}

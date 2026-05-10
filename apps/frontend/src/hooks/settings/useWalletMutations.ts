@@ -37,8 +37,6 @@ export function useWalletMutations() {
     setDeleting(id);
     try {
       await apiClient.delete(`/api/wallets/${id}`);
-    } catch (e) {
-      throw e;
     } finally {
       setDeleting(null);
     }

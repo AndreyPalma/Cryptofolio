@@ -4,7 +4,7 @@
  */
 import { apiClient } from "../lib/api-client";
 import { toIso8601 } from "../lib/iso-datetime";
-import type { TransactionType, CostSource } from "../types/token-detail";
+import type { TransactionType } from "../types/token-detail";
 import type { DecimalString } from "../types/portfolio";
 import type { Token } from "./useTokensByWallet";
 
@@ -52,7 +52,10 @@ interface ApiErrorBody {
 }
 
 // We need to fetch with manual response handling for 4xx bodies
-const BASE_URL = (typeof import.meta !== "undefined" && (import.meta.env as Record<string, string | undefined>).VITE_API_URL) ?? "";
+const BASE_URL: string =
+  (typeof import.meta !== "undefined"
+    ? (import.meta.env as Record<string, string | undefined>).VITE_API_URL
+    : undefined) ?? "";
 
 async function postTransaction(body: unknown): Promise<Response> {
   return fetch(`${BASE_URL}/api/transactions`, {
@@ -93,7 +96,7 @@ export function useCreateTransaction(): {
         tokenContractAddress: token?.contractAddress ?? "",
         tokenNetwork: token?.network ?? "",
       };
-    } catch (err) {
+    } catch (_err) {
       // Parse error response body for structured errors
       try {
         const response = await postTransaction(body);

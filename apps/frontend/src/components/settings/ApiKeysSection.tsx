@@ -1,6 +1,6 @@
 import { useApiKeysStatus } from "../../hooks/settings/useApiKeysStatus";
 import { useTestApiKey } from "../../hooks/settings/useTestApiKey";
-import type { ApiService, ApiKeyTestState } from "../../types/settings";
+import type { ApiKeyTestState } from "../../types/settings";
 import { cn } from "../../lib/cn";
 
 interface ApiKeyRowProps {
@@ -19,8 +19,8 @@ function TestResultBadge({ state }: { state: ApiKeyTestState }) {
   }
   if (state.status === "connected") {
     const parts: string[] = ["Connected"];
-    if (state.meta?.latencyMs !== undefined) parts.push(`${state.meta.latencyMs}ms`);
-    if (state.meta?.assetCount !== undefined) parts.push(`${state.meta.assetCount} assets`);
+    if (state.meta?.latencyMs !== undefined) parts.push(`${String(state.meta.latencyMs)}ms`);
+    if (state.meta?.assetCount !== undefined) parts.push(`${String(state.meta.assetCount)} assets`);
     return (
       <span className="text-xs text-green-400">{parts.join(" · ")}</span>
     );

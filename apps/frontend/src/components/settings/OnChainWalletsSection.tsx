@@ -24,7 +24,7 @@ function CopyButton({ address }: { address: string }) {
     <button
       type="button"
       data-testid="copy-btn"
-      onClick={handleCopy}
+      onClick={() => void handleCopy()}
       className="rounded bg-gray-700 px-2 py-0.5 text-xs text-gray-300 hover:bg-gray-600"
     >
       {copied ? "Copied!" : "Copy"}
@@ -130,7 +130,7 @@ function AddWalletForm({ onSuccess, onCancel }: { onSuccess: () => void; onCance
   const [address, setAddress] = useState("");
   const [network, setNetwork] = useState<"ETH" | "BSC">("ETH");
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.SyntheticEvent) => {
     e.preventDefault();
     clearAddError();
     try {
@@ -150,8 +150,9 @@ function AddWalletForm({ onSuccess, onCancel }: { onSuccess: () => void; onCance
     <form onSubmit={(e) => void handleSubmit(e)} className="rounded-lg bg-gray-800 p-4 space-y-3">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>
-          <label className="block text-xs text-gray-400 mb-1">Label (optional)</label>
+          <label htmlFor="wallet-label" className="block text-xs text-gray-400 mb-1">Label (optional)</label>
           <input
+            id="wallet-label"
             type="text"
             value={label}
             onChange={(e) => { setLabel(e.target.value); }}
@@ -160,8 +161,9 @@ function AddWalletForm({ onSuccess, onCancel }: { onSuccess: () => void; onCance
           />
         </div>
         <div>
-          <label className="block text-xs text-gray-400 mb-1">Network</label>
+          <label htmlFor="wallet-network" className="block text-xs text-gray-400 mb-1">Network</label>
           <select
+            id="wallet-network"
             value={network}
             onChange={(e) => { setNetwork(e.target.value as "ETH" | "BSC"); }}
             className="w-full rounded bg-gray-700 px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
@@ -172,8 +174,9 @@ function AddWalletForm({ onSuccess, onCancel }: { onSuccess: () => void; onCance
         </div>
       </div>
       <div>
-        <label className="block text-xs text-gray-400 mb-1">Address</label>
+        <label htmlFor="wallet-address" className="block text-xs text-gray-400 mb-1">Address</label>
         <input
+          id="wallet-address"
           type="text"
           value={address}
           onChange={(e) => { setAddress(e.target.value); }}

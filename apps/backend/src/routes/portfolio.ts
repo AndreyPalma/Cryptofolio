@@ -27,6 +27,7 @@ const ClosedPositionsQuerySchema = z.object({
 });
 
 export const portfolioRoutes: FastifyPluginAsync = async (fastify) => {
+  await Promise.resolve();
   const priceService = createPriceService(fastify.log);
 
   // GET /api/portfolio
@@ -86,15 +87,15 @@ export const portfolioRoutes: FastifyPluginAsync = async (fastify) => {
     const userId: string = (req.user as { sub?: string } | undefined)?.sub ?? 'unknown';
 
     const silentLog = {
-      warn: () => {},
-      error: () => {},
-      info: () => {},
-      debug: () => {},
-      trace: () => {},
-      fatal: () => {},
+      warn: () => { /* noop */ },
+      error: () => { /* noop */ },
+      info: () => { /* noop */ },
+      debug: () => { /* noop */ },
+      trace: () => { /* noop */ },
+      fatal: () => { /* noop */ },
       child: function () { return this; },
       level: 'silent',
-      silent: () => {},
+      silent: () => { /* noop */ },
     } as unknown as import('fastify').FastifyBaseLogger;
 
     const binanceClient = createBinanceApiClient({ apiKey, secretKey, log: silentLog });
@@ -102,7 +103,7 @@ export const portfolioRoutes: FastifyPluginAsync = async (fastify) => {
 
     try {
       const result = await validatorService.validate(userId);
-      return reply.status(200).send(result);
+      return await reply.status(200).send(result);
     } catch (err) {
       if (err instanceof NotFoundError) {
         return reply.status(400).send({

@@ -64,7 +64,7 @@ function DashboardErrorState({ onRetry }: DashboardErrorStateProps) {
     <main className="min-h-screen bg-gray-950 p-6 text-white">
       <div aria-live="polite">
         <div className="rounded-lg bg-gray-900 p-6 text-center">
-          <p className="mb-4 text-gray-300">Couldn't load portfolio.</p>
+          <p className="mb-4 text-gray-300">Couldn&apos;t load portfolio.</p>
           <button
             type="button"
             onClick={onRetry}
@@ -145,7 +145,7 @@ export function DashboardPage() {
   }
 
   if (error !== null && data === null) {
-    return <DashboardErrorState onRetry={refresh} />;
+    return <DashboardErrorState onRetry={() => { refresh().catch((_e: unknown) => { /* ignore */ }); }} />;
   }
 
   if (data === null) {
@@ -186,7 +186,7 @@ export function DashboardPage() {
             relativeTime={relativeTime}
             isRefetching={isRefetching}
             stale={error !== null}
-            onRetry={refresh}
+            onRetry={() => { refresh().catch((_e: unknown) => { /* ignore */ }); }}
           />
         </div>
       </header>
@@ -254,9 +254,9 @@ export function DashboardPage() {
                 tokens={closedOnlyTokens}
                 loading={closedPositionsLoading}
                 error={closedPositionsError}
-                onRetry={refreshClosedPositions}
-                emptyMessage="No hay tokens completamente cerrados todavía."
-                showClosedBadge
+            onRetry={refreshClosedPositions}
+            emptyMessage="No hay tokens completamente cerrados todavía."
+            showClosedBadge
               />
             </div>
           </div>

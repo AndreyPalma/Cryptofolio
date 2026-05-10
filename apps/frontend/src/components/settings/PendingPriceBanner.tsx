@@ -9,10 +9,6 @@ export function PendingPriceBanner() {
   }
 
   const first = data.transactions[0] ?? null;
-  const hasContractAddress =
-    first !== null &&
-    first.contractAddress !== null &&
-    first.contractAddress !== undefined;
 
   return (
     <div className="mb-6 rounded-xl border border-yellow-700 bg-yellow-900/30 p-4">
@@ -20,7 +16,7 @@ export function PendingPriceBanner() {
         <p className="text-sm text-yellow-200">
           ⚠ {data.count} TRANSFER_IN transactions need a price. Set prices to complete your P&amp;L.
         </p>
-        {hasContractAddress ? (
+        {first?.contractAddress != null ? (
           <Link
             to={`/token/${first.contractAddress}/${first.tokenNetwork}`}
             className="shrink-0 rounded bg-yellow-700 px-3 py-1 text-xs font-medium text-yellow-100 hover:bg-yellow-600"

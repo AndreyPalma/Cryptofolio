@@ -58,7 +58,7 @@ export function useTransferInSuggestion(
     isOnChainDestination;
 
   useEffect(() => {
-    if (!shouldFetch || token === null || destinationWalletId === null) {
+    if (!shouldFetch) {
       setCandidate(null);
       setLoading(false);
       return;
@@ -112,6 +112,7 @@ export function useTransferInSuggestion(
     return () => {
       cancelled = true;
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [type, token?.contractAddress, token?.network, destinationWalletId, isOnChainDestination]);
 
   return { candidate, loading, error };

@@ -96,7 +96,7 @@ async function callBSCTrace(
   let json: unknown;
   try {
     json = await res.json();
-  } catch (err) {
+  } catch (_err) {
     throw new ExternalApiError('bsctrace', { message: 'Invalid JSON', url: urlForLog });
   }
 
@@ -143,7 +143,7 @@ export function createBSCTraceClient(opts: BSCTraceClientOptions): OnChainApiCli
       let fromBlock = startBlock;
 
       // BSCTrace paginates via pageKey. We loop until no more pages.
-       
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
       while (true) {
         const requestBody = {
           jsonrpc: '2.0',
@@ -203,7 +203,8 @@ export function createBSCTraceClient(opts: BSCTraceClientOptions): OnChainApiCli
 
         // Move fromBlock to avoid re-fetching all data (best effort — BSCTrace handles dedup)
         if (data.result.transfers.length > 0) {
-          const last = data.result.transfers[data.result.transfers.length - 1]!;
+          const last = data.result.transfers[data.result.transfers.length - 1];
+          if (!last) break;
           fromBlock = parseInt(last.blockNum, 16) - 1;
         } else {
           break;

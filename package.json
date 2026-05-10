@@ -20,11 +20,6 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:engine": "vitest run --project engine",
-    "test:sync": "vitest run --project sync",
-    "test:e2e": "vitest run --project e2e",
     "db:migrate": "npm -w @cryptoledger/db run migrate",
     "db:migrate:down": "npm -w @cryptoledger/db run migrate:down",
     "db:seed": "npm -w @cryptoledger/db run seed"
@@ -43,8 +38,7 @@
     "prettier": "^3.4.0",
     "simple-git-hooks": "^2.11.0",
     "typescript": "^5.7.0",
-    "typescript-eslint": "^8.20.0",
-    "vitest": "^2.1.0"
+    "typescript-eslint": "^8.20.0"
   },
   "simple-git-hooks": {
     "pre-commit": "npx lint-staged"

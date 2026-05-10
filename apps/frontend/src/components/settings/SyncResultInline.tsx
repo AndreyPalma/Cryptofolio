@@ -41,8 +41,8 @@ export function SyncResultInline({ result }: SyncResultInlineProps) {
       <div>
         <span className="font-medium">Deposits:</span>{" "}
         {result.deposits.synced} synced | {result.deposits.skipped} skipped
-        {result.deposits.inherited > 0 && ` (${result.deposits.inherited} inherited)`}
-        {result.deposits.manual > 0 && ` (${result.deposits.manual} manual)`}
+        {result.deposits.inherited > 0 && ` (${String(result.deposits.inherited)} inherited)`}
+        {result.deposits.manual > 0 && ` (${String(result.deposits.manual)} manual)`}
       </div>
       {result.tokensCreated > 0 && (
         <div>

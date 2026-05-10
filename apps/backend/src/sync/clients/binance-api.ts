@@ -9,7 +9,7 @@ import { ApiKeyMissingError, ExternalApiError, ValidationError } from '../../ser
 
 export class FiatPermissionDeniedError extends Error {
   constructor(endpoint: string, code?: number) {
-    super(`Fiat endpoint ${endpoint} denied: code=${code}`);
+    super(`Fiat endpoint ${endpoint} denied: code=${String(code)}`);
     this.name = 'FiatPermissionDeniedError';
     Object.setPrototypeOf(this, new.target.prototype);
   }
@@ -239,10 +239,10 @@ export function createBinanceApiClient(opts: {
 
   return {
     assertConfigured(): void {
-      if (!apiKey?.trim()) {
+      if (!apiKey.trim()) {
         throw new ApiKeyMissingError('BINANCE_API_KEY');
       }
-      if (!secretKey?.trim()) {
+      if (!secretKey.trim()) {
         throw new ApiKeyMissingError('BINANCE_SECRET_KEY');
       }
     },
@@ -331,7 +331,7 @@ export function createBinanceApiClient(opts: {
         }[];
       }>('/sapi/v1/convert/tradeFlow', { startTime, endTime }, [], signal);
 
-      return (data.list ?? [])
+      return data.list
         .filter((c) => c.orderStatus === 'SUCCESS')
         .map((c) => ({
           orderId: c.orderId,
@@ -355,7 +355,7 @@ export function createBinanceApiClient(opts: {
         status: number;
       }[]>('/sapi/v1/capital/withdraw/history', { startTime, endTime }, [], signal);
 
-      return (raw ?? []).filter((w) => w.status === 6);
+      return raw.filter((w) => w.status === 6);
     },
 
     async getDepositHistory(startTime: number, endTime: number, signal?: AbortSignal): Promise<BinanceDeposit[]> {
@@ -368,7 +368,7 @@ export function createBinanceApiClient(opts: {
         status: number;
       }[]>('/sapi/v1/capital/deposit/hisrec', { startTime, endTime }, [], signal);
 
-      return (raw ?? []).filter((d) => d.status === 1);
+      return raw.filter((d) => d.status === 1);
     },
 
     async getFiatOrders(opts): Promise<BinanceFiatOrder[]> {
@@ -384,7 +384,7 @@ export function createBinanceApiClient(opts: {
           [],
           opts.signal,
         );
-        return (data.data ?? []).filter((order) => order.status === 'Completed');
+        return data.data.filter((order) => order.status === 'Completed');
       } catch (err) {
         const permissionError = toFiatPermissionDeniedError(endpoint, err);
         if (permissionError) {
@@ -407,7 +407,7 @@ export function createBinanceApiClient(opts: {
           [],
           opts.signal,
         );
-        return (data.data ?? []).filter((payment) => payment.status === 'Completed');
+        return data.data.filter((payment) => payment.status === 'Completed');
       } catch (err) {
         const permissionError = toFiatPermissionDeniedError(endpoint, err);
         if (permissionError) {

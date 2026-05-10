@@ -123,7 +123,7 @@ export function classifyAndDecomposeTransaction(
   }
 
   // ── Native ETH/BNB transfer ──────────────────────────────────────────────────
-  if (group.normalTx && group.normalTx.value !== '0' && group.normalTx.isError === '0') {
+  if (group.normalTx && group.normalTx.value !== '0') {
     return [decodeNativeLeg(group.normalTx, wallet, network, source, baseTs)];
   }
 
@@ -139,8 +139,6 @@ function decomposeSwap(
   source: Extract<TransactionSource, 'ETHERSCAN' | 'BSCTRACE'>,
   baseTs: Date,
 ): DecomposedTransaction[] {
-  const routers = SWAP_ROUTERS[network];
-
   // Generate two UUIDs upfront so legs can cross-link
   const outId = crypto.randomUUID();
   const inId = crypto.randomUUID();
@@ -149,8 +147,9 @@ function decomposeSwap(
   if (group.tokenTxs.length >= 2) {
     // Sort by logIndex ASC — lower = OUT, higher = IN
     const sorted = group.tokenTxs.slice().sort((a, b) => a.logIndex - b.logIndex);
-    const outLeg = sorted[0]!;
-    const inLeg = sorted[sorted.length - 1]!;
+    const outLeg = sorted[0];
+    const inLeg = sorted[sorted.length - 1];
+    if (!outLeg || !inLeg) return [];
 
     const out = makeDecomposedTokenTx(
       outLeg, 'SWAP_OUT', outId, 0, inId, source, baseTs,
@@ -164,7 +163,8 @@ function decomposeSwap(
   // ── Native → token swap: normalTx is the OUT leg ───────────────────────────
   if (group.normalTx && group.tokenTxs.length >= 1) {
     const nTx = group.normalTx;
-    const tTx = group.tokenTxs[0]!;
+    const tTx = group.tokenTxs[0];
+    if (!tTx) return [];
 
     const isNativeOut = nTx.from.toLowerCase() === wallet;
 

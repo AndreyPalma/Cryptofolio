@@ -22,7 +22,7 @@ interface EtherscanTx {
 interface EtherscanTokenTx {
   hash: string;
   blockNumber: string;
-  transactionIndex: string;
+  transactionIndex?: string;
   transactionPosition?: string;
   logIndex?: string;
   timeStamp: string;
@@ -112,7 +112,7 @@ async function callEtherscan<T>(
   let json: unknown;
   try {
     json = await res.json();
-  } catch (err) {
+  } catch (_err) {
     throw new ExternalApiError('etherscan', { message: 'Invalid JSON', url: scrubUrl(url) });
   }
 

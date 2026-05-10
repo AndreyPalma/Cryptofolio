@@ -87,7 +87,7 @@ function AddBinanceForm({ onSuccess, onCancel }: { onSuccess: () => void; onCanc
   const { addWallet, adding, addError, clearAddError } = useWalletMutations();
   const [label, setLabel] = useState("");
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.SyntheticEvent) => {
     e.preventDefault();
     clearAddError();
     try {
@@ -105,8 +105,9 @@ function AddBinanceForm({ onSuccess, onCancel }: { onSuccess: () => void; onCanc
   return (
     <form onSubmit={(e) => void handleSubmit(e)} className="rounded-lg bg-gray-800 p-4 space-y-3">
       <div>
-        <label className="block text-xs text-gray-400 mb-1">Label (optional)</label>
+        <label htmlFor="binance-label" className="block text-xs text-gray-400 mb-1">Label (optional)</label>
         <input
+          id="binance-label"
           type="text"
           value={label}
           onChange={(e) => { setLabel(e.target.value); }}

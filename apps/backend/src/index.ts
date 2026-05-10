@@ -125,7 +125,7 @@ if (isMain) {
     const { cleanupStaleRuns } = await import('./services/sync-run-helper.js');
     const { deleted } = await cleanupStaleRuns(pool);
     if (deleted > 0) {
-      console.info(`Cleaned up ${deleted} stale sync runs`);
+      console.info(`Cleaned up ${String(deleted)} stale sync runs`);
     }
 
     const server = await buildServer({ jwtSecret: env.JWT_SECRET });

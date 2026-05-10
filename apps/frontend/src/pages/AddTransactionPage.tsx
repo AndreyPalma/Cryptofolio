@@ -33,7 +33,7 @@ function initialNowLocal(): string {
   const now = new Date();
   // YYYY-MM-DDTHH:mm
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  return `${String(now.getFullYear())}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
 }
 
 interface FieldErrors {
@@ -108,7 +108,7 @@ export function AddTransactionPage() {
     submitting ||
     isOverBalance;
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
 
     const errors: FieldErrors = {};
@@ -152,7 +152,7 @@ export function AddTransactionPage() {
 
       if (result.status === "success") {
         showToast(
-          `Transaction added. Cycle #${result.cycleNumber} updated.`,
+          `Transaction added. Cycle #${String(result.cycleNumber)} updated.`,
           "success",
         );
         void navigate(`/token/${result.tokenContractAddress}/${result.tokenNetwork}`);
@@ -188,13 +188,18 @@ export function AddTransactionPage() {
     }
   }
 
+  function handleFormSubmit(e: React.SyntheticEvent<HTMLFormElement>): void {
+    e.preventDefault();
+    handleSubmit(e).catch((_e: unknown) => { /* ignore */ });
+  }
+
   return (
     <main className="min-h-screen bg-gray-950 p-6 text-white">
       <div className="mx-auto max-w-lg">
         <div className="mb-6 flex items-center gap-4">
           <button
             type="button"
-            onClick={() => navigate(-1)}
+            onClick={() => { void navigate(-1); }}
             className="text-gray-400 hover:text-white"
             data-testid="cancel"
           >
@@ -204,9 +209,7 @@ export function AddTransactionPage() {
         </div>
 
         <form
-          onSubmit={(e) => {
-            void handleSubmit(e);
-          }}
+          onSubmit={handleFormSubmit}
           noValidate
           className="flex flex-col gap-4 rounded-xl bg-gray-900 p-6"
         >

@@ -83,7 +83,7 @@ export function TokenRow({ token, onUpdate }: TokenRowProps) {
             type="checkbox"
             checked={token.isHidden}
             disabled={savingHidden}
-            onChange={handleToggleHidden}
+            onChange={() => void handleToggleHidden()}
             className="h-4 w-4 accent-indigo-600 cursor-pointer disabled:cursor-not-allowed"
           />
           <span className="text-xs text-gray-400">Hidden</span>
@@ -102,7 +102,7 @@ export function TokenRow({ token, onUpdate }: TokenRowProps) {
             <>
               <button
                 type="button"
-                onClick={handleSavePrice}
+                onClick={() => void handleSavePrice()}
                 disabled={!isPriceValid || savingTarget}
                 className="rounded bg-indigo-600 px-2 py-1 text-xs text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
               >

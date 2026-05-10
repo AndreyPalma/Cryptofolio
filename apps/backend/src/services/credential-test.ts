@@ -28,8 +28,8 @@ function parseEtherscanLikeBody(
   }
 
   if (data.status === '0') {
-    const result = String(data.result ?? '').toLowerCase();
-    const msg = (data.message ?? '').toLowerCase();
+    const result = typeof data.result === 'string' ? data.result.toLowerCase() : '';
+    const msg = typeof data.message === 'string' ? data.message.toLowerCase() : '';
     const combined = `${result} ${msg}`;
     if (combined.includes('invalid') || combined.includes('api key')) {
       return { status: 'failed', reason: 'Invalid API key' };
@@ -37,7 +37,8 @@ function parseEtherscanLikeBody(
     if (combined.includes('rate limit') || combined.includes('max rate')) {
       return { status: 'failed', reason: 'Rate limit exceeded' };
     }
-    return { status: 'failed', reason: String(data.result || data.message) ?? 'Unknown error' };
+    const reason = typeof data.result === 'string' ? data.result : typeof data.message === 'string' ? data.message : 'Unknown error';
+    return { status: 'failed', reason };
   }
 
   return { status: 'failed', reason: `${serviceName} unreachable` };
@@ -140,15 +141,15 @@ export class CredentialTestService {
 
     // We need a minimal logger for BinanceApiClient — never log key values
     const silentLog = {
-      warn: () => {},
-      error: () => {},
-      info: () => {},
-      debug: () => {},
-      trace: () => {},
-      fatal: () => {},
+      warn: () => { /* noop */ },
+      error: () => { /* noop */ },
+      info: () => { /* noop */ },
+      debug: () => { /* noop */ },
+      trace: () => { /* noop */ },
+      fatal: () => { /* noop */ },
       child: function () { return this; },
       level: 'silent',
-      silent: () => {},
+      silent: () => { /* noop */ },
     } as unknown as import('fastify').FastifyBaseLogger;
 
     const client = createBinanceApiClient({ apiKey, secretKey, log: silentLog });
@@ -177,10 +178,10 @@ export class CredentialTestService {
           return { status: 'failed', reason: 'API key requires read permissions' };
         }
         if (cause?.binanceCode) {
-          return { status: 'failed', reason: `Binance error code ${cause.binanceCode}` };
+          return { status: 'failed', reason: `Binance error code ${String(cause.binanceCode)}` };
         }
         if (cause?.status) {
-          return { status: 'failed', reason: `Binance HTTP ${cause.status}` };
+          return { status: 'failed', reason: `Binance HTTP ${String(cause.status)}` };
         }
         return { status: 'failed', reason: 'Binance unreachable' };
       }

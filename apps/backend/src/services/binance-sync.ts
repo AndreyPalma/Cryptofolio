@@ -11,7 +11,6 @@ import type {
   BinanceApiClient,
   BinanceTrade,
   BinanceDeposit,
-  BinanceWithdrawal,
   BinanceFiatOrder,
   BinanceFiatPayment,
 } from '../sync/clients/binance-api.js';
@@ -169,7 +168,7 @@ export class BinanceSyncService {
 
       return { trades, converts, withdrawals, deposits, fiat: fiatResult, tokensCreated };
     } catch (err) {
-      await syncRunHelper.rollback(runId).catch(() => {});
+      await syncRunHelper.rollback(runId).catch(() => undefined);
       throw err;
     }
   }
@@ -278,7 +277,7 @@ export class BinanceSyncService {
           opts.tokenId,
           opts.type,
           'BINANCE',
-          opts.cexTradeId !== null ? opts.cexTradeId : null,
+          opts.cexTradeId ?? null,
           opts.cexOrderId ?? null,
           opts.txLogIndex,
           opts.relatedTxId ?? null,
@@ -800,8 +799,8 @@ export class BinanceSyncService {
           withdrawal.coin, withdrawal.coin, onTokenCreated,
         );
 
-        const openPos = buffer.get(tokenId);
-        const priceUsd = (openPos?.status === 'OPEN' ? openPos.wac : null) ?? '0';
+    const openPos = buffer.get(tokenId);
+    const priceUsd = openPos?.status === 'OPEN' ? openPos.wac : '0';
         const ts = new Date(withdrawal.applyTime);
 
         const result = await this.persistBinanceTxAtomic({

@@ -393,7 +393,7 @@ export async function getTokenDetail(
     const ts =
       tx.block_timestamp instanceof Date
         ? tx.block_timestamp.toISOString()
-        : String(tx.block_timestamp);
+        : tx.block_timestamp;
 
     // Derive costInheritedFrom for INHERITED rows.
     // V1 rule: BINANCE source → 'BINANCE', else → 'ONCHAIN'
@@ -483,8 +483,8 @@ export async function getPositionHistory(
   // 3. Map to PositionHistoryEntry
   return result.rows.map((r) => ({
     cycleNumber: r.cycle_number,
-    openedAt: r.opened_at instanceof Date ? r.opened_at.toISOString() : String(r.opened_at),
-    closedAt: r.closed_at instanceof Date ? r.closed_at.toISOString() : String(r.closed_at),
+    openedAt: r.opened_at instanceof Date ? r.opened_at.toISOString() : r.opened_at,
+    closedAt: r.closed_at instanceof Date ? r.closed_at.toISOString() : r.closed_at,
     realizedPnlUsd: r.realized_pnl_usd,
   }));
 }
@@ -577,7 +577,8 @@ export async function getClosedPositions(
   const byToken: ClosedTokenGroup[] = [];
 
   for (const [tokenId, rows] of tokenGroups) {
-    const first = rows[0]!;
+    const first = rows[0];
+    if (!first) continue;
     let tokenPnl = ZERO;
     const cycles: ClosedCycle[] = [];
 

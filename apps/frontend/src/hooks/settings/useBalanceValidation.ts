@@ -56,7 +56,7 @@ export function useBalanceValidation(): UseBalanceValidationResult {
 
   const hasBinanceWallet = (wallets ?? []).some((w) => w.network === "CEX_BINANCE");
   const hasBinanceKeys =
-    presence?.BINANCE_API_KEY === true && presence?.BINANCE_SECRET_KEY;
+    presence?.BINANCE_API_KEY === true && presence.BINANCE_SECRET_KEY;
   const disabledReason: "no-wallet" | "no-keys" | null = !hasBinanceWallet
     ? "no-wallet"
     : !hasBinanceKeys

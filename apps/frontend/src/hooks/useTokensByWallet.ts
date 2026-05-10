@@ -104,7 +104,7 @@ export function useTokensByWallet(wallet: WalletEntry | null): UseTokensByWallet
     return () => {
       cancelled = true;
     };
-  }, [wallet?.id, wallet?.network]);
+  }, [wallet]);
 
   return { data, loading, error };
 }

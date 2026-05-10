@@ -10,6 +10,7 @@ import { CredentialTestService } from '../services/credential-test.js';
 const credentialTestService = new CredentialTestService();
 
 export const credentialRoutes: FastifyPluginAsync = async (fastify) => {
+  await Promise.resolve();
   // ── GET / — check presence of env API keys ──────────────────────────────────
   fastify.get('/', async (_req, reply) => {
     const presence = {

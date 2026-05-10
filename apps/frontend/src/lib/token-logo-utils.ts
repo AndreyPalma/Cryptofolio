@@ -21,14 +21,14 @@ const AVATAR_PALETTE = [
 export function simpleHash(s: string): number {
   let h = 0;
   for (let i = 0; i < s.length; i++) {
-    h = ((h << 5) - h + (s.charCodeAt(i) ?? 0)) | 0;
+    h = ((h << 5) - h + s.charCodeAt(i)) | 0;
   }
   return Math.abs(h);
 }
 
 export function computeAvatarColor(symbol: string): string {
   const index = simpleHash(symbol) % AVATAR_PALETTE.length;
-  return AVATAR_PALETTE[index] ?? AVATAR_PALETTE[0] ?? "#6366F1";
+  return AVATAR_PALETTE[index] ?? AVATAR_PALETTE[0];
 }
 
 export function networkToChain(network: "ETH" | "BSC"): "ethereum" | "smartchain" {

@@ -12,7 +12,7 @@ interface TransactionTableProps {
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
-  const yyyy = d.getFullYear();
+  const yyyy = String(d.getFullYear());
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
   const hh = String(d.getHours()).padStart(2, "0");
@@ -112,11 +112,7 @@ export function TransactionTable({ transactions, currentPrice }: TransactionTabl
 
                 {/* Value at Time */}
                 <td className="px-3 py-2 text-right">
-                  {valueAtTime !== null ? (
-                    valueAtTime
-                  ) : (
-                    <span className="text-gray-400">—</span>
-                  )}
+                  {valueAtTime ?? <span className="text-gray-400">—</span>}
                 </td>
 
                 {/* Current Price */}
@@ -130,11 +126,7 @@ export function TransactionTable({ transactions, currentPrice }: TransactionTabl
 
                 {/* Current Value */}
                 <td className="px-3 py-2 text-right">
-                  {currentValue !== null ? (
-                    currentValue
-                  ) : (
-                    <span className="text-gray-400">—</span>
-                  )}
+                  {currentValue ?? <span className="text-gray-400">—</span>}
                 </td>
 
                 {/* P&L */}
