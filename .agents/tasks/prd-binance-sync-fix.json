@@ -1,0 +1,209 @@
+{
+  "version": 2,
+  "project": "Sync Completo — Binance + On-Chain (ETH/BSC)",
+  "overview": "El sync de Binance trunca la historia a diciembre 2025, no descubre activos con balance 0, ignora fiat y no cubre todos los pares. El sync on-chain (Etherscan/BSCTrace) usa una única transacción DB gigante, no tiene feedback visual y carece de protección contra syncs concurrentes. Esta PRD corrige ambos defectos estructurales para que la primera sincronización de cualquier wallet — CEX u on-chain, con tokens o sin ellos — sea 100% completa y correcta, y sirva de base sólida para las sincronizaciones incrementales posteriores.",
+  "goals": [
+    "Binance: obtener historial completo desde 2017-01-01 (no hardcode de fecha)",
+    "Binance: descubrir todos los activos históricos incluyendo los que tienen balance 0",
+    "Binance: registrar movimientos fiat (compra de crypto con tarjeta/banco) como FIAT_IN/FIAT_OUT",
+    "Binance: cubrir todos los pares de cotización relevantes: USDT, USDC, BTC, ETH, BNB, FDUSD",
+    "On-chain: garantizar primera sync completa desde block 0 (ya default) para wallets con o sin tokens ERC-20/BEP-20",
+    "On-chain: reemplazar la única transacción DB monolítica por lotes de N transacciones para evitar timeouts",
+    "Ambos: proveer feedback visual en tiempo real via SSE compartido — mismo endpoint, misma UI",
+    "Ambos: rechazar syncs concurrentes del mismo walletId con 409 Conflict",
+    "Ambos: detener la sync con mensaje descriptivo si un paso falla"
+  ],
+  "nonGoals": [
+    "Dust conversions (non-goal explícito en PRD v5)",
+    "Staking rewards / Simple Earn interest",
+    "P2P trades",
+    "Futures / Margin trading",
+    "Sub-accounts",
+    "Integración con otros exchanges (Coinbase, Kraken, etc.) — solo Binance en CEX",
+    "Soporte de redes on-chain distintas a ETH y BSC"
+  ],
+  "successMetrics": [
+    "Primera sync de wallet Binance captura 100% de trades, converts, deposits, withdrawals y movimientos fiat desde 2017-01-01",
+    "Primera sync de wallet ETH/BSC captura 100% de transacciones desde block 0, incluyendo wallets solo-native sin ERC-20",
+    "Activos con balance 0 pero con historial de trades/txs aparecen con P&L calculado",
+    "El usuario ve cada paso de la sync en tiempo real con estado y contador de transacciones encontradas",
+    "Si un paso falla, aparece mensaje descriptivo y la sync se detiene (sin datos parciales corruptos)"
+  ],
+  "openQuestions": [
+    "¿Los retiros fiat (FIAT_OUT) deben afectar el WAC de la stablecoin como SELL, o solo registrarse informativamente?",
+    "¿El API key del usuario puede no tener permisos fiat — qué mensaje mostrar en ese caso?",
+    "¿Cuál es el tamaño de lote óptimo para la persistencia on-chain? (propuesta inicial: 500 txs por batch)"
+  ],
+  "stack": {
+    "framework": "Fastify 5 + React 19 + Vite 6",
+    "hosting": "Self-hosted / local",
+    "database": "PostgreSQL via node-pg-migrate",
+    "auth": "JWT HS256 httpOnly cookie",
+    "runtime": "Node 22"
+  },
+  "routes": [
+    {
+      "path": "GET /api/sync/:walletId/stream",
+      "name": "Sync SSE stream (compartido)",
+      "purpose": "Único endpoint SSE para CEX (Binance) y ON_CHAIN (ETH/BSC). Despacha por wallet_type. Emite eventos por paso hasta completion o error."
+    },
+    {
+      "path": "/settings",
+      "name": "Settings page — wallet sync",
+      "purpose": "Componente SyncProgress reutilizable para cualquier wallet. Muestra pasos dinámicos según tipo (CEX u on-chain) en tiempo real."
+    }
+  ],
+  "uiNotes": [
+    "Cada paso se muestra como fila con ícono de estado: pending (gris), running (spinner), done ✓ (verde), error ✗ (rojo)",
+    "Pasos CEX en orden visual: Fiat → Depósitos → Retiros → Conversiones → Trades",
+    "Pasos On-chain en orden visual: Fetch Transacciones Normales → Fetch Token Transfers → Clasificando → Persistiendo",
+    "En estado running on-chain: mostrar contador incremental 'X txs procesadas' cada batch",
+    "En estado done: mostrar 'X transacciones sincronizadas'",
+    "En estado error: mostrar mensaje descriptivo debajo de la fila, botón 'Reintentar'",
+    "Mientras corre: botón 'Cancelar' que cierra el SSE stream"
+  ],
+  "dataModel": [
+    {
+      "entity": "transaction_type enum",
+      "fields": ["BUY", "SELL", "SWAP_IN", "SWAP_OUT", "TRANSFER_IN", "TRANSFER_OUT", "FIAT_IN", "FIAT_OUT"],
+      "note": "FIAT_IN y FIAT_OUT son los dos valores nuevos. Requiere migración SQL y actualización de db/enums.ts"
+    },
+    {
+      "entity": "SyncProgressEvent (SSE payload — compartido CEX y ON_CHAIN)",
+      "fields": [
+        "step: string — CEX: 'fiat'|'deposits'|'withdrawals'|'converts'|'trades' / ON_CHAIN: 'fetch_normal'|'fetch_tokens'|'classify'|'persist' | 'error' | 'complete'",
+        "status: 'running' | 'done' | 'skipped' | 'error'",
+        "synced?: number — transacciones persistidas en este paso",
+        "skipped?: number — transacciones omitidas (ya existían / ON CONFLICT)",
+        "fetched?: number — solo en fetch_normal / fetch_tokens: cantidad de txs descargadas",
+        "batchProgress?: { done: number, total: number } — solo en persist on-chain, emitido por batch",
+        "failedStep?: string — solo en evento error",
+        "code?: string — código de error legible por máquina",
+        "message?: string — mensaje descriptivo para el usuario",
+        "summary?: object — solo en evento complete"
+      ]
+    }
+  ],
+  "importFormat": {
+    "description": "No aplica — la data viene de los endpoints REST de Binance",
+    "example": {}
+  },
+  "rules": [
+    "BINANCE — SYNC_START_MS se elimina; primera sync parte de 2017-01-01T00:00:00Z",
+    "BINANCE — Orden de pasos: fiat → deposits → withdrawals → converts → trades",
+    "BINANCE — discoverAssets() usa tokens en DB after pasos 1-4, NO el balance actual",
+    "BINANCE — QUOTE_ASSETS ampliado a: ['USDT', 'USDC', 'BTC', 'ETH', 'BNB', 'FDUSD']",
+    "BINANCE — FIAT_IN tratado como BUY en position engine; FIAT_OUT como SELL",
+    "BINANCE — Si fiat 403: paso retorna skipped/PERMISSION_DENIED, sync continúa",
+    "BINANCE — Depósitos de otros exchanges cubiertos via /sapi/v1/capital/deposit/hisrec (TRANSFER_IN existente)",
+    "ON-CHAIN — last_synced_block default=0 garantiza fetch desde block 0 en primera sync",
+    "ON-CHAIN — paginateNormal y paginateToken siempre corren aunque una de las dos devuelva vacío (wallets solo-native o solo-token son válidas)",
+    "ON-CHAIN — Persistencia en lotes de 500 txs máximo por transacción DB, no una transacción monolítica",
+    "ON-CHAIN — Cada batch emite evento batchProgress al frontend: { done: N, total: M }",
+    "AMBOS — GET /api/sync/:walletId/stream despacha por wallet_type usando la misma infraestructura SSE",
+    "AMBOS — Si sync ya corre para ese walletId: responder 409 Conflict inmediatamente",
+    "AMBOS — Si cliente cierra SSE: backend detecta req.raw.on('close') y aborta el proceso",
+    "AMBOS — Si paso falla con error no-recuperable: emitir evento error y detener; no continuar con datos parciales"
+  ],
+  "qualityGates": [
+    "npm run test:sync",
+    "npm run test:engine",
+    "npm run typecheck",
+    "npm run lint"
+  ],
+  "stories": [
+    {
+      "id": "US-013",
+      "title": "DB: agregar FIAT_IN y FIAT_OUT al enum transaction_type",
+      "status": "open",
+      "dependsOn": [],
+      "description": "Como desarrollador, quiero que el enum transaction_type en PostgreSQL y en db/enums.ts incluya los valores FIAT_IN y FIAT_OUT para poder persistir movimientos fiat como transacciones tipadas.",
+      "acceptanceCriteria": [
+        "Nueva migración SQL agrega 'FIAT_IN' y 'FIAT_OUT' al tipo transaction_type en PostgreSQL",
+        "db/enums.ts se actualiza con los nuevos valores para mantener el módulo TS sincronizado con SQL",
+        "db/enums.test.ts pasa sin cambios (valida que TS enum == SQL CREATE TYPE)",
+        "npm run db:migrate ejecuta la migración sin error y npm run db:migrate:down la revierte limpiamente",
+        "Ejemplo: INSERT de transacción con type='FIAT_IN' persiste correctamente",
+        "NEGATIVE: INSERT con type='FIAT_DEPOSIT' (valor inválido) falla con PostgreSQL constraint violation"
+      ]
+    },
+    {
+      "id": "US-014",
+      "title": "Backend: Binance sync con historia completa, fiat y cobertura de pares ampliada",
+      "status": "open",
+      "dependsOn": ["US-013"],
+      "description": "Como usuario, quiero que la sincronización de mi cuenta Binance obtenga todo el historial desde la creación de mi cuenta, incluyendo movimientos fiat y todos los pares de trading relevantes, para que mi portafolio refleje ganancias y pérdidas reales con precisión.",
+      "acceptanceCriteria": [
+        "SYNC_START_MS hardcodeado se elimina; primera sync usa startTime = 2017-01-01T00:00:00Z como piso absoluto",
+        "Orden de ejecución: syncFiat → syncDeposits → syncWithdrawals → syncConvert → syncTrades",
+        "syncFiat() consume GET /sapi/v1/fiat/orders (type=0, compra) y GET /sapi/v1/fiat/payments (type=0, compra con tarjeta) y persiste como FIAT_IN con costSource MARKET",
+        "syncFiat() consume /sapi/v1/fiat/orders type=1 (retiro fiat) y persiste como FIAT_OUT",
+        "Si fiat endpoint responde 403 o código de permisos insuficientes, el paso retorna { status: 'skipped', code: 'PERMISSION_DENIED' } y la sync continúa",
+        "discoverAssets() usa SELECT DISTINCT symbol FROM tokens WHERE network='CEX_BINANCE' (resultado de los pasos 1-4) como base de discovery — no depende del balance actual",
+        "QUOTE_ASSETS ampliado a ['USDT', 'USDC', 'BTC', 'ETH', 'BNB', 'FDUSD']",
+        "El position engine procesa FIAT_IN igual que BUY (actualiza WAC y balance) y FIAT_OUT igual que SELL",
+        "Resync incremental: cursors siguen funcionando igual que hoy (solo fetch delta desde el último cursor)",
+        "Ejemplo: usuario compró USDT con tarjeta en 2023 → aparece como FIAT_IN con priceUsd=1.0",
+        "Ejemplo: usuario vendió ETH en 2022 con balance resultante 0 → trade aparece con P&L calculado",
+        "NEGATIVE: sync de wallet ON_CHAIN no es afectada por estos cambios",
+        "NEGATIVE: par USDTUSDC (quote == base) no se intenta",
+        "npm run test:sync pasa incluyendo nuevos tests para syncFiat y discoverAssets refactorizado"
+      ]
+    },
+    {
+      "id": "US-015",
+      "title": "Backend + Frontend: infraestructura SSE compartida y UI de progreso para sync Binance",
+      "status": "open",
+      "dependsOn": ["US-014"],
+      "description": "Como usuario, quiero ver en tiempo real qué paso está ejecutando la sincronización de Binance, cuántas transacciones encontró cada paso, y si algo falla recibir un mensaje descriptivo, para poder controlar que el proceso es correcto. Esta historia construye la infraestructura SSE compartida que US-016 reutilizará para on-chain.",
+      "acceptanceCriteria": [
+        "Nuevo endpoint GET /api/sync/:walletId/stream responde con Content-Type: text/event-stream y despacha por wallet_type",
+        "Para wallet CEX: BinanceSyncService acepta un emisor SSE (callback o async generator) y emite eventos por paso",
+        "Cada paso emite evento al inicio (status: 'running') y al finalizar (status: 'done' | 'skipped' | 'error')",
+        "Evento done incluye: { step, status: 'done', synced: number, skipped: number }",
+        "Evento error incluye: { step: 'error', failedStep: string, code: string, message: string } — no se emiten más eventos tras él",
+        "Evento final: { step: 'complete', status: 'done', summary: { trades, converts, deposits, withdrawals, fiat, tokensCreated } }",
+        "Si el cliente cierra la conexión SSE, el backend detecta req.raw.on('close') y aborta la sync en curso",
+        "NEGATIVE: dos llamadas simultáneas al mismo walletId — la segunda responde 409 Conflict inmediatamente sin iniciar sync",
+        "POST /api/sync/:walletId se depreca (nota en código) pero no se elimina en esta historia",
+        "Frontend: componente SyncProgress genérico que recibe lista de pasos como prop y los renderiza dinámicamente",
+        "Frontend: para wallet CEX los pasos son [fiat, deposits, withdrawals, converts, trades]",
+        "Frontend: estado visual por fila: pending (gris) → running (spinner) → done ✓ verde con contador → error ✗ rojo con mensaje",
+        "Frontend: botón Cancelar cierra EventSource y muestra estado 'Cancelado'",
+        "Frontend: en error, botón Reintentar abre nuevo EventSource al mismo endpoint",
+        "Ejemplo: sync Binance con 5 pasos exitosos → usuario ve 5 filas en verde con contadores",
+        "Ejemplo: falla en 'trades' por rate limit → primeras filas verdes, 'Trades' rojo con mensaje descriptivo",
+        "npm run test:sync incluye test del endpoint SSE para wallet CEX",
+        "npm run typecheck pasa en backend y frontend"
+      ]
+    },
+    {
+      "id": "US-016",
+      "title": "Backend + Frontend: SSE streaming y persistencia por lotes para sync on-chain (ETH/BSC)",
+      "status": "open",
+      "dependsOn": ["US-015"],
+      "description": "Como usuario, quiero que la sincronización de mis wallets ETH y BSC capture el 100% de transacciones desde block 0 — incluyendo wallets que solo tienen transferencias nativas sin tokens ERC-20 — y que el progreso se muestre en tiempo real con el mismo componente visual que Binance, sin riesgo de timeout por transacciones DB monolíticas.",
+      "acceptanceCriteria": [
+        "OnChainSyncService acepta el mismo emisor SSE (callback/generator) definido en US-015 y emite eventos por fase",
+        "Fase fetch_normal: emite running al iniciar paginación, done con { fetched: N } al completar todos los batches de Etherscan/BSCTrace",
+        "Fase fetch_tokens: igual que fetch_normal para token transfers",
+        "Fase classify: emite running al clasificar, done con { decomposed: N } — incluye swaps, transfers, buys, sells",
+        "Fase persist: en lugar de un único BEGIN...COMMIT, persiste en lotes de máximo 500 txs cada uno",
+        "Cada lote emitido como batchProgress: { done: N, total: M } durante status running de persist",
+        "Al finalizar persist: emite done con { synced: N, skipped: K, swapsDecomposed: S, transfersPendingCost: T }",
+        "Evento final: { step: 'complete', status: 'done', summary: SyncResult }",
+        "Wallet solo-native (solo tiene ETH/BNB sin ERC-20): fetch_tokens retorna fetched=0, fase classify y persist procesan solo txs normales — no es error",
+        "Wallet solo-token (solo tiene ERC-20 sin ETH nativo): fetch_normal retorna fetched=0 — no es error",
+        "El endpoint GET /api/sync/:walletId/stream (construido en US-015) despacha a OnChainSyncService cuando wallet_type=ON_CHAIN",
+        "NEGATIVE: dos syncs simultáneas para el mismo walletId — la segunda responde 409 Conflict (mecanismo compartido con US-015)",
+        "NEGATIVE: si Etherscan/BSCTrace retorna error HTTP durante paginación: emitir evento error con code ETHERSCAN_ERROR / BSCTRACE_ERROR y detener",
+        "Frontend: componente SyncProgress reutilizado con pasos on-chain [fetch_normal, fetch_tokens, classify, persist] en lugar de los pasos CEX",
+        "Frontend: durante persist mostrar barra de progreso o contador 'X / Y txs persistidas' actualizado por batch",
+        "Ejemplo: wallet ETH con 3500 txs históricas → usuario ve fetch (3500 txs), classify (N decomposed), persist con 7 batches de 500 actualizando contador",
+        "Ejemplo: wallet ETH con solo transferencias de ETH y sin ERC-20 → fetch_tokens done con fetched=0, sync completa correctamente",
+        "npm run test:sync incluye tests para SSE on-chain: mock de Etherscan client, verificación de emisión de eventos por fase y por batch",
+        "npm run typecheck pasa en backend y frontend"
+      ]
+    }
+  ]
+}
