@@ -421,3 +421,96 @@ AND exactamente 1 entrada con `network='ETH'`, `sourceType='ON_CHAIN'`
 AND exactamente 1 entrada con `network='CEX_BINANCE'`, `sourceType='CEX'`  
 AND NUNCA una única entrada que mezcle ambas  
 AND cada entrada tiene `walletCount=1` en este escenario (no hay crossover)
+
+---
+
+## 8. GET /api/portfolio/closed
+
+### Request
+
+```
+GET /api/portfolio/closed[?wallet_id=<uuid>][&network=<ETH|BSC|CEX_BINANCE>][&from=<ISO8601>][&to=<ISO8601>]
+Authorization: Bearer <jwt>
+```
+
+**Query params:**
+
+```typescript
+const ClosedPositionsQuerySchema = z.object({
+  wallet_id: z.string().uuid().optional(),
+  network: z.enum(['ETH', 'BSC', 'CEX_BINANCE']).optional(),
+  from: z.string().datetime().optional(),
+  to: z.string().datetime().optional(),
+});
+```
+
+### Response — 200 OK
+
+```typescript
+const ClosedPositionsResponseSchema = z.object({
+  totalClosedPnlUsd: z.string(),       // DecimalString — suma de realized_pnl_usd de todos los cycles cerrados
+  totalClosedCostBasisUsd: z.string(), // DecimalString — suma de cost_basis
+  totalClosedProceedsUsd: z.string(), // DecimalString — cost_basis + realized_pnl_usd
+  tokens: z.array(z.object({
+    tokenId: z.string(),
+    symbol: z.string(),
+    name: z.string(),
+    network: z.enum(['ETH', 'BSC', 'CEX_BINANCE']),
+    contractAddress: z.string().nullable(), // null para CEX_BINANCE
+    binanceSymbol: z.string().nullable(),
+    closedCyclesCount: z.number().int(),
+    totalClosedPnlUsd: z.string(),
+    totalClosedCostBasisUsd: z.string(),
+    totalClosedProceedsUsd: z.string(),
+    cycles: z.array(z.object({
+      positionId: z.string(),
+      cycleNumber: z.number().int(),
+      walletId: z.string(),
+      walletLabel: z.string().nullable(),
+      openedAt: z.string(),           // ISO-8601
+      closedAt: z.string(),           // ISO-8601
+      costBasisUsd: z.string(),
+      realizedPnlUsd: z.string(),
+      totalProceedsUsd: z.string(),   // costBasisUsd + realizedPnlUsd
+    })),
+  })),
+});
+
+export type ClosedPositionsResponse = z.infer<typeof ClosedPositionsResponseSchema>;
+```
+
+### HTTP status codes
+
+| Condición | Status |
+|-----------|--------|
+| Éxito (con o sin posiciones cerradas) | 200 |
+| JWT ausente o inválido | 401 (middleware global) |
+| Filtro `network` inválido | 400 |
+| Error interno no controlado | 500 |
+
+#### SC-ROUTE-CLOSED-01: ciclos cerrados existentes
+
+**Given**: usuario con cycles con `status='CLOSED'`  
+**When**: `GET /api/portfolio/closed`  
+**Then**: `200` con `tokens` array poblado  
+AND cada cycle tiene `totalProceedsUsd = costBasisUsd + realizedPnlUsd`  
+AND cycles agrupados por token con contexto de wallet
+
+#### SC-ROUTE-CLOSED-02: sin ciclos cerrados
+
+**Given**: usuario sin ningún cycle con `status='CLOSED'`  
+**When**: `GET /api/portfolio/closed`  
+**Then**: `200 { totalClosedPnlUsd: '0.000000000000000000', totalClosedCostBasisUsd: '0.000000000000000000', totalClosedProceedsUsd: '0.000000000000000000', tokens: [] }`
+
+#### SC-ROUTE-CLOSED-03: con filtro wallet_id
+
+**Given**: usuario con ciclos cerrados en W1 y W2  
+**When**: `GET /api/portfolio/closed?wallet_id=W1`  
+**Then**: `200` solo con ciclos de W1  
+AND otros ciclos de W2 NO aparecen
+
+#### SC-ROUTE-CLOSED-04: con filtro network
+
+**Given**: usuario con ciclos cerrados en network='ETH' y network='BSC'  
+**When**: `GET /api/portfolio/closed?network=ETH`  
+**Then**: `200` solo con ciclos de network='ETH'

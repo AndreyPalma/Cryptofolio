@@ -1,0 +1,21 @@
+status: archived
+archived_at: 2026-05-10
+origin_change: us-015-sync-orchestrator-sse
+verification_status: passed_with_warnings
+warnings:
+  - code: W1
+    description: "cancel() sets status to 'cancelled' which is outside the spec contract (spec says idle|syncing|done|error). Non-breaking — SyncProgress handles it gracefully."
+    severity: low
+  - code: W2
+    description: "cleanupStaleRuns is in the `isMain` block before buildServer(), not inside buildServer() as spec text says. Comment documents intentional decision for testability."
+    severity: low
+requirements_verified:
+  - SyncOrchestrator lock Map<string,AbortController>
+  - Fastify decorator registered
+  - SSE endpoint GET /api/sync/:walletId/stream with correct headers
+  - Lock shared between POST and SSE
+  - POST refactorized with validateWalletOwnership
+  - SSE event contract complete (running/done/skipped/error/complete)
+  - useSyncStream hook with EventSource
+  - SyncProgress component with state icons, Cancel/Retry buttons
+  - ExchangeAccountsSection integration

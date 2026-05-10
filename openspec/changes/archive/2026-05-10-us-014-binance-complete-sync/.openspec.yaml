@@ -1,0 +1,23 @@
+status: archived
+archived_at: 2026-05-10
+origin_change: us-014-binance-complete-sync
+verification_status: passed
+warnings:
+  - code: W1
+    description: syncFiat emits 'reason' field vs spec's 'code' — behavior correct, naming differs
+    severity: low
+  - code: W2
+    description: persistBinanceTxAtomic swallows SQL error 22003 (numeric overflow) silently
+    severity: low
+requirements_verified:
+  - REQ-001
+  - REQ-002
+  - REQ-003
+  - REQ-004
+  - REQ-005
+  - REQ-006
+  - REQ-007
+  - REQ-008
+  - REQ-009
+  - REQ-010
+  - REQ-011

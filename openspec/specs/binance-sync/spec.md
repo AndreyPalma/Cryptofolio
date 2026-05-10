@@ -3,6 +3,7 @@
 **Origin change**: US-008-B-binance-cex-sync
 **Date**: 2026-05-07
 **Status**: DONE
+**Last updated by**: US-014-binance-complete-sync (2026-05-10)
 
 ---
 
@@ -65,6 +66,8 @@ CONSTRAINT tokens_source_coherence CHECK (
 
 | Sub-method | operation key | Window |
 |------------|---------------|--------|
+| syncFiat (orders) | `fiat:orders` | 90 days |
+| syncFiat (payments) | `fiat:payments` | 90 days |
 | syncTrades | `trades:${symbol}` | 24h |
 | syncConvert | `converts` | 30 days |
 | syncWithdrawals | `withdrawals` | 90 days |
@@ -72,15 +75,73 @@ CONSTRAINT tokens_source_coherence CHECK (
 
 ---
 
-## BinanceSyncResult shape
+## Sync order
+
+`BinanceSyncService.sync()` MUST execute steps in this exact order:
+
+```
+1. syncFiat()        — fiat orders + payments (FIAT_IN/FIAT_OUT)
+2. syncDeposits()    — CEX deposits
+3. syncWithdrawals() — CEX withdrawals
+4. syncConvert()     — Binance Convert trades
+5. syncTrades()      — spot trades
+```
+
+---
+
+## New constants (US-014)
 
 ```typescript
-{
-  trades:      { synced, skipped, symbolsProcessed }
-  converts:    { synced, skipped }
-  withdrawals: { synced, skipped }
-  deposits:    { synced, skipped, inherited, manual }
-  tokensCreated: number
+export const BINANCE_HISTORY_FLOOR_MS = new Date('2017-01-01T00:00:00.000Z').getTime();
+export const QUOTE_ASSETS = ['USDT', 'USDC', 'BTC', 'ETH', 'BNB', 'FDUSD'] as const;
+```
+
+---
+
+## Fiat sync (US-014)
+
+`BinanceSyncService.syncFiat()` persists fiat orders as `FIAT_IN` and fiat payments as `FIAT_OUT`, using:
+- `cex_order_id = payload.orderNo`
+- `cex_trade_id = NULL`
+- `tx_log_index = 0`
+- `cost_source = 'MARKET'` (or `'MANUAL'` if fiat→USD conversion fails)
+- `sync_run_id = runId`
+
+Permission errors (401/403) result in `status: 'skipped'` — sync continues to next step.
+
+---
+
+## Sync with emit/signal (US-014)
+
+All sub-methods accept optional `(emit?: SyncEmitter, signal?: AbortSignal)`:
+- When `emit` is undefined, no events are emitted (backwards compatible with POST)
+- When `signal` is provided, `signal.aborted` is checked before each HTTP batch
+- Aborted signal interrupts execution cleanly and triggers `SyncRunHelper.rollback()`
+
+---
+
+## Atomicity (US-014)
+
+`BinanceSyncService.sync()` integrates with `SyncRunHelper` (US-018):
+1. `SyncRunHelper.start(walletId, 'CEX')` → obtains `runId`
+2. `PositionStateBuffer.loadInitial(pool, walletId)` → in-memory buffer
+3. Each tx written during the run includes `sync_run_id = runId`
+4. Positions and cursors kept in memory during the run
+5. On success: `SyncRunHelper.commitSuccess(runId, { positions: buffer, cursorUpdates })`
+6. On failure: `SyncRunHelper.rollback(runId)` → CASCADE deletes run's txs
+
+---
+
+## BinanceSyncResult shape (US-014 updated)
+
+```typescript
+interface BinanceSyncResult {
+  trades: number;
+  converts: number;
+  withdrawals: number;
+  deposits: number;
+  fiat: number;        // NEW — count of FIAT_IN + FIAT_OUT persisted
+  tokensCreated: number;
 }
 ```
 

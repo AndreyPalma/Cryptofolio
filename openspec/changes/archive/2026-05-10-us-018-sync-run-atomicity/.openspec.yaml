@@ -1,6 +1,7 @@
 change: us-018-sync-run-atomicity
 origin: US-018
-status: in-progress
+status: archived
+archived_on: '2026-05-10'
 domains:
   - database-schema
   - binance-sync

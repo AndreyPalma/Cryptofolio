@@ -19,17 +19,31 @@ export function PositionHistoryPage() {
     network: normalizedNetwork,
   });
 
+  // Find the token group matching this page's URL params.
+  // For ON_CHAIN tokens: contractAddress IS the contract address (not null).
+  // For CEX_BINANCE tokens: contractAddress is the symbol.lowerCase() because
+  // getTokenRouteParam(null, symbol) = symbol.toLowerCase().
+  // We match by identity key so the lookup works for both cases.
   const tokenGroup =
-    contractAddress && normalizedNetwork
-      ? (data?.byToken.find(
-          (token) =>
-            getTokenIdentityKey(
-              token.network,
-              token.contractAddress,
-              token.symbol,
-            ) ===
-            getTokenIdentityKey(normalizedNetwork, contractAddress, contractAddress),
-        ) ?? null)
+    data && normalizedNetwork && contractAddress
+      ? (data.byToken.find((tg) => {
+          const key = getTokenIdentityKey(
+            normalizedNetwork,
+            tg.contractAddress,
+            tg.symbol,
+          );
+          // For CEX tokens contractAddress IS the symbol-lowercase from URL.
+          // For ON_CHAIN tokens contractAddress IS the contract address.
+          const urlKey =
+            normalizedNetwork === "CEX_BINANCE"
+              ? getTokenIdentityKey(normalizedNetwork, null, contractAddress)
+              : getTokenIdentityKey(
+                  normalizedNetwork,
+                  contractAddress,
+                  "", // symbol not needed when we have the real contractAddress
+                );
+          return key === urlKey;
+        }) ?? null)
       : null;
 
   return (

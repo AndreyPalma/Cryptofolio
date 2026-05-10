@@ -1,6 +1,0 @@
-change: us-017-closed-positions
-origin: US-017
-status: applied
-domains:
-  - portfolio-service
-  - portfolio-routes
