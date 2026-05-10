@@ -7,9 +7,17 @@ import crypto from 'node:crypto';
 import type { FastifyBaseLogger } from 'fastify';
 import { ApiKeyMissingError, ExternalApiError, ValidationError } from '../../services/errors.js';
 
+export class FiatPermissionDeniedError extends Error {
+  constructor(endpoint: string, code?: number) {
+    super(`Fiat endpoint ${endpoint} denied: code=${code}`);
+    this.name = 'FiatPermissionDeniedError';
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
 // ─── Binance API response types ────────────────────────────────────────────────
 
-export type BinanceTrade = {
+export interface BinanceTrade {
   symbol: string;
   id: number;          // Binance trade ID — fits in JS number (int53 safe)
   orderId: number;
@@ -20,9 +28,9 @@ export type BinanceTrade = {
   time: number;        // unix ms
   commissionAsset: string | null;
   commission: string | null;
-};
+}
 
-export type BinanceConvert = {
+export interface BinanceConvert {
   orderId: string;     // large integer string — up to 18 digits; parsed to BigInt for DB
   fromAsset: string;
   toAsset: string;
@@ -30,9 +38,9 @@ export type BinanceConvert = {
   toAmount: string;
   status: string;      // 'SUCCESS' | 'FAIL' | ...
   createTime: number;  // unix ms
-};
+}
 
-export type BinanceWithdrawal = {
+export interface BinanceWithdrawal {
   id: string;          // withdrawal record ID (numeric string)
   coin: string;
   amount: string;
@@ -40,30 +48,55 @@ export type BinanceWithdrawal = {
   txId: string;        // on-chain tx hash — bridge for resolveTransferCost
   applyTime: number;   // unix ms
   status: number;      // 6 = completed
-};
+}
 
-export type BinanceDeposit = {
+export interface BinanceDeposit {
   coin: string;
   amount: string;
   address: string;     // the on-chain address it came from
   txId: string;        // on-chain tx hash
   insertTime: number;  // unix ms
   status: number;      // 1 = success
-};
+}
+
+export interface BinanceFiatOrder {
+  orderNo: string;
+  sourceAmount: string;
+  obtainAmount: string;
+  fiatCurrency: string;
+  cryptoCurrency: string;
+  totalFee: string;
+  price: string;
+  status: string;
+  createTime: number;
+}
+
+export interface BinanceFiatPayment {
+  orderNo: string;
+  sourceAmount: string;
+  obtainAmount: string;
+  fiatCurrency: string;
+  cryptoCurrency: string;
+  totalFee: string;
+  status: string;
+  createTime: number;
+}
 
 // ─── BinanceApiClient interface ────────────────────────────────────────────────
 
 export interface BinanceApiClient {
   assertConfigured(): void;
-  getAccountAssets(): Promise<Array<{ asset: string; free: string; locked: string }>>;
+  getAccountAssets(signal?: AbortSignal): Promise<{ asset: string; free: string; locked: string }[]>;
   /** Returns the set of all symbol names currently in TRADING status. Public endpoint, no auth required.
    *  Call once per sync run to pre-filter candidate pairs before querying myTrades. */
-  getValidTradingSymbols(): Promise<Set<string>>;
+  getValidTradingSymbols(signal?: AbortSignal): Promise<Set<string>>;
   /** Returns null when the symbol doesn't exist on Binance (-1121), so callers can skip it entirely. */
-  getMyTrades(symbol: string, startTime: number, endTime: number): Promise<BinanceTrade[] | null>;
-  getConvertHistory(startTime: number, endTime: number): Promise<BinanceConvert[]>;
-  getWithdrawHistory(startTime: number, endTime: number): Promise<BinanceWithdrawal[]>;
-  getDepositHistory(startTime: number, endTime: number): Promise<BinanceDeposit[]>;
+  getMyTrades(symbol: string, startTime: number, endTime: number, signal?: AbortSignal): Promise<BinanceTrade[] | null>;
+  getConvertHistory(startTime: number, endTime: number, signal?: AbortSignal): Promise<BinanceConvert[]>;
+  getWithdrawHistory(startTime: number, endTime: number, signal?: AbortSignal): Promise<BinanceWithdrawal[]>;
+  getDepositHistory(startTime: number, endTime: number, signal?: AbortSignal): Promise<BinanceDeposit[]>;
+  getFiatOrders(opts: { beginTime: number; endTime: number; transactionType: 0 | 1; signal?: AbortSignal }): Promise<BinanceFiatOrder[]>;
+  getFiatPayments(opts: { beginTime: number; endTime: number; transactionType: 0 | 1; signal?: AbortSignal }): Promise<BinanceFiatPayment[]>;
 }
 
 // ─── Internal types ────────────────────────────────────────────────────────────
@@ -72,6 +105,8 @@ interface BinanceErrorBody {
   code?: number;
   msg?: string;
 }
+
+const FIAT_PERMISSION_CODES = new Set([-1022, -2008, -2014, -2015, -1109]);
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -87,6 +122,32 @@ function sign(secretKey: string, queryString: string): string {
   return crypto.createHmac('sha256', secretKey).update(queryString).digest('hex');
 }
 
+function toFiatPermissionDeniedError(endpoint: string, err: unknown): FiatPermissionDeniedError | null {
+  if (err instanceof ValidationError) {
+    return new FiatPermissionDeniedError(endpoint);
+  }
+
+  if (!(err instanceof ExternalApiError)) {
+    return null;
+  }
+
+  const cause = err.upstreamCause;
+  if (typeof cause !== 'object' || cause === null) {
+    return null;
+  }
+
+  const { status, binanceCode } = cause as { status?: number; binanceCode?: number };
+  if (status === 401 || status === 403) {
+    return new FiatPermissionDeniedError(endpoint, status);
+  }
+
+  if (typeof binanceCode === 'number' && FIAT_PERMISSION_CODES.has(binanceCode)) {
+    return new FiatPermissionDeniedError(endpoint, binanceCode);
+  }
+
+  return null;
+}
+
 const BINANCE_BASE = 'https://api.binance.com';
 
 // ─── Factory ──────────────────────────────────────────────────────────────────
@@ -99,7 +160,12 @@ export function createBinanceApiClient(opts: {
   const { apiKey, secretKey, log } = opts;
 
   /** Builds a signed request and returns parsed JSON. Never logs secretKey or apiKey values. */
-  async function signed<T>(endpoint: string, params: Record<string, string | number> = {}, silentCodes: number[] = []): Promise<T> {
+  async function signed<T>(
+    endpoint: string,
+    params: Record<string, string | number> = {},
+    silentCodes: number[] = [],
+    signal?: AbortSignal,
+  ): Promise<T> {
     const qs = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) {
       qs.set(k, String(v));
@@ -114,6 +180,7 @@ export function createBinanceApiClient(opts: {
     try {
       res = await fetch(`${BINANCE_BASE}${endpoint}?${qs.toString()}`, {
         headers: { 'X-MBX-APIKEY': apiKey },
+        signal,
       });
     } catch (err) {
       // Do NOT include URL (contains signature) or apiKey/secretKey in cause
@@ -167,7 +234,7 @@ export function createBinanceApiClient(opts: {
       throw new ExternalApiError('binance', { binanceCode: data.code });
     }
 
-    return data as T;
+    return data;
   }
 
   return {
@@ -180,27 +247,30 @@ export function createBinanceApiClient(opts: {
       }
     },
 
-    async getAccountAssets(): Promise<Array<{ asset: string; free: string; locked: string }>> {
-      const data = await signed<{ balances: Array<{ asset: string; free: string; locked: string }> }>(
+    async getAccountAssets(signal?: AbortSignal): Promise<{ asset: string; free: string; locked: string }[]> {
+      const data = await signed<{ balances: { asset: string; free: string; locked: string }[] }>(
         '/api/v3/account',
+        {},
+        [],
+        signal,
       );
       return data.balances.filter(
         (b) => parseFloat(b.free) + parseFloat(b.locked) > 0,
       );
     },
 
-    async getValidTradingSymbols(): Promise<Set<string>> {
+    async getValidTradingSymbols(signal?: AbortSignal): Promise<Set<string>> {
       // Public endpoint — no signature required. Returns all symbols with status=TRADING.
       let res: Response;
       try {
-        res = await fetch(`${BINANCE_BASE}/api/v3/exchangeInfo?symbolStatus=TRADING`);
+        res = await fetch(`${BINANCE_BASE}/api/v3/exchangeInfo?symbolStatus=TRADING`, { signal });
       } catch (err) {
         throw new ExternalApiError('binance', { message: String(err) });
       }
       if (!res.ok) {
         throw new ExternalApiError('binance', { status: res.status });
       }
-      const data = await res.json() as { symbols: Array<{ symbol: string; status: string }> };
+      const data = await res.json() as { symbols: { symbol: string; status: string }[] };
       const valid = new Set<string>();
       for (const s of data.symbols) {
         if (s.status === 'TRADING') valid.add(s.symbol);
@@ -208,8 +278,8 @@ export function createBinanceApiClient(opts: {
       return valid;
     },
 
-    async getMyTrades(symbol: string, startTime: number, endTime: number): Promise<BinanceTrade[] | null> {
-      let raw: Array<{
+    async getMyTrades(symbol: string, startTime: number, endTime: number, signal?: AbortSignal): Promise<BinanceTrade[] | null> {
+      let raw: {
         symbol: string;
         id: number;
         orderId: number;
@@ -220,9 +290,9 @@ export function createBinanceApiClient(opts: {
         time: number;
         commissionAsset?: string;
         commission?: string;
-      }>;
+      }[];
       try {
-        raw = await signed<typeof raw>('/api/v3/myTrades', { symbol, startTime, endTime }, [-1121]);
+        raw = await signed<typeof raw>('/api/v3/myTrades', { symbol, startTime, endTime }, [-1121], signal);
       } catch (err) {
         // -1121: symbol doesn't exist on Binance — return null so caller can skip all remaining windows
         if (err instanceof ExternalApiError) {
@@ -248,9 +318,9 @@ export function createBinanceApiClient(opts: {
       }));
     },
 
-    async getConvertHistory(startTime: number, endTime: number): Promise<BinanceConvert[]> {
+    async getConvertHistory(startTime: number, endTime: number, signal?: AbortSignal): Promise<BinanceConvert[]> {
       const data = await signed<{
-        list: Array<{
+        list: {
           orderId: string;
           fromAsset: string;
           toAsset: string;
@@ -258,8 +328,8 @@ export function createBinanceApiClient(opts: {
           toAmount: string;
           orderStatus: string;
           createTime: number;
-        }>;
-      }>('/sapi/v1/convert/tradeFlow', { startTime, endTime });
+        }[];
+      }>('/sapi/v1/convert/tradeFlow', { startTime, endTime }, [], signal);
 
       return (data.list ?? [])
         .filter((c) => c.orderStatus === 'SUCCESS')
@@ -274,8 +344,8 @@ export function createBinanceApiClient(opts: {
         }));
     },
 
-    async getWithdrawHistory(startTime: number, endTime: number): Promise<BinanceWithdrawal[]> {
-      const raw = await signed<Array<{
+    async getWithdrawHistory(startTime: number, endTime: number, signal?: AbortSignal): Promise<BinanceWithdrawal[]> {
+      const raw = await signed<{
         id: string;
         coin: string;
         amount: string;
@@ -283,22 +353,68 @@ export function createBinanceApiClient(opts: {
         txId: string;
         applyTime: number;
         status: number;
-      }>>('/sapi/v1/capital/withdraw/history', { startTime, endTime });
+      }[]>('/sapi/v1/capital/withdraw/history', { startTime, endTime }, [], signal);
 
       return (raw ?? []).filter((w) => w.status === 6);
     },
 
-    async getDepositHistory(startTime: number, endTime: number): Promise<BinanceDeposit[]> {
-      const raw = await signed<Array<{
+    async getDepositHistory(startTime: number, endTime: number, signal?: AbortSignal): Promise<BinanceDeposit[]> {
+      const raw = await signed<{
         coin: string;
         amount: string;
         address: string;
         txId: string;
         insertTime: number;
         status: number;
-      }>>('/sapi/v1/capital/deposit/hisrec', { startTime, endTime });
+      }[]>('/sapi/v1/capital/deposit/hisrec', { startTime, endTime }, [], signal);
 
       return (raw ?? []).filter((d) => d.status === 1);
+    },
+
+    async getFiatOrders(opts): Promise<BinanceFiatOrder[]> {
+      const endpoint = '/sapi/v1/fiat/orders';
+      try {
+        const data = await signed<{ code: string; message: string; data: BinanceFiatOrder[] }>(
+          endpoint,
+          {
+            beginTime: opts.beginTime,
+            endTime: opts.endTime,
+            transactionType: opts.transactionType,
+          },
+          [],
+          opts.signal,
+        );
+        return (data.data ?? []).filter((order) => order.status === 'Completed');
+      } catch (err) {
+        const permissionError = toFiatPermissionDeniedError(endpoint, err);
+        if (permissionError) {
+          throw permissionError;
+        }
+        throw err;
+      }
+    },
+
+    async getFiatPayments(opts): Promise<BinanceFiatPayment[]> {
+      const endpoint = '/sapi/v1/fiat/payments';
+      try {
+        const data = await signed<{ code: string; message: string; data: BinanceFiatPayment[] }>(
+          endpoint,
+          {
+            beginTime: opts.beginTime,
+            endTime: opts.endTime,
+            transactionType: opts.transactionType,
+          },
+          [],
+          opts.signal,
+        );
+        return (data.data ?? []).filter((payment) => payment.status === 'Completed');
+      } catch (err) {
+        const permissionError = toFiatPermissionDeniedError(endpoint, err);
+        if (permissionError) {
+          throw permissionError;
+        }
+        throw err;
+      }
     },
   };
 }

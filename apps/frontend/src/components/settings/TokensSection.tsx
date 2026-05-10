@@ -50,13 +50,13 @@ export function TokensSection() {
           type="text"
           placeholder="Search by symbol…"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => { setSearch(e.target.value); }}
           className="rounded bg-gray-800 px-3 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
         />
         <button
           type="button"
           data-testid="show-hidden-toggle"
-          onClick={() => setShowHidden((v) => !v)}
+          onClick={() => { setShowHidden((v) => !v); }}
           className={`rounded px-3 py-1.5 text-xs font-medium transition-colors ${
             showHidden
               ? "bg-indigo-600 text-white"

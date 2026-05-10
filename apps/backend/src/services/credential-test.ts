@@ -56,7 +56,7 @@ export class CredentialTestService {
     }
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), CredentialTestService.TIMEOUT_MS);
+    const timer = setTimeout(() => { controller.abort(); }, CredentialTestService.TIMEOUT_MS);
 
     const url = `https://api.etherscan.io/v2/api?chainid=1&module=stats&action=ethsupply&apikey=${apiKey}`;
     const start = Date.now();
@@ -97,7 +97,7 @@ export class CredentialTestService {
     }
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), CredentialTestService.TIMEOUT_MS);
+    const timer = setTimeout(() => { controller.abort(); }, CredentialTestService.TIMEOUT_MS);
 
     const url = `https://api.bscscan.com/api?module=stats&action=bnbsupply&apikey=${apiKey}`;
     const start = Date.now();
@@ -154,7 +154,7 @@ export class CredentialTestService {
     const client = createBinanceApiClient({ apiKey, secretKey, log: silentLog });
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), CredentialTestService.TIMEOUT_MS);
+    const timer = setTimeout(() => { controller.abort(); }, CredentialTestService.TIMEOUT_MS);
 
     try {
       // getAccountAssets calls GET /api/v3/account — validates both key and signature

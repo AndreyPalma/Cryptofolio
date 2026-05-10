@@ -94,7 +94,7 @@ export function TokenRow({ token, onUpdate }: TokenRowProps) {
           <input
             type="text"
             value={draftTargetPrice}
-            onChange={(e) => setDraftTargetPrice(e.target.value)}
+            onChange={(e) => { setDraftTargetPrice(e.target.value); }}
             placeholder="—"
             className="w-24 rounded bg-gray-800 px-2 py-1 text-xs text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           />

@@ -44,5 +44,5 @@ export function useWalletMutations() {
     }
   };
 
-  return { addWallet, deleteWallet, adding, deleting, addError, clearAddError: () => setAddError(null) };
+  return { addWallet, deleteWallet, adding, deleting, addError, clearAddError: () => { setAddError(null); } };
 }

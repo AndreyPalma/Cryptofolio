@@ -57,7 +57,7 @@ export function TokenLogo({
   const bgColor = computeAvatarColor(symbol);
 
   if (showCdnImage) {
-    const url = trustWalletUrl(network, contractAddress!);
+    const url = trustWalletUrl(network, contractAddress);
     if (url !== null) {
       return (
         <div

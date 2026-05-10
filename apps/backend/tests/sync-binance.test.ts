@@ -124,6 +124,8 @@ function makeMockBinanceClient(overrides: Partial<BinanceApiClient> = {}): Binan
     getConvertHistory: vi.fn().mockResolvedValue([]),
     getWithdrawHistory: vi.fn().mockResolvedValue([]),
     getDepositHistory: vi.fn().mockResolvedValue([]),
+    getFiatOrders: vi.fn().mockResolvedValue([]),
+    getFiatPayments: vi.fn().mockResolvedValue([]),
     ...overrides,
   };
 }
@@ -132,6 +134,8 @@ function makeMockPriceService(cexPrice = 3000) {
   return {
     getCexPrice: vi.fn().mockResolvedValue({ priceUsd: String(cexPrice) }),
     getOnChainPrice: vi.fn(),
+    getOnChainPricesBulk: vi.fn().mockResolvedValue(new Map()),
+    getFiatToUsdAt: vi.fn().mockResolvedValue('1'),
   };
 }
 

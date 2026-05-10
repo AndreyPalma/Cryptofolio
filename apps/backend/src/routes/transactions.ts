@@ -47,7 +47,7 @@ SELECT
 const CreateTransactionBodySchema = z.object({
   wallet_id:         z.uuid(),
   token_id:          z.uuid(),
-  type:              z.enum(['BUY', 'SELL', 'SWAP_IN', 'SWAP_OUT', 'TRANSFER_IN', 'TRANSFER_OUT']),
+  type:              z.enum(['BUY', 'SELL', 'SWAP_IN', 'SWAP_OUT', 'TRANSFER_IN', 'TRANSFER_OUT', 'FIAT_IN', 'FIAT_OUT']),
   amount:            z.string().regex(/^\d+(\.\d+)?$/).refine(v => parseFloat(v) > 0, {
                        message: 'amount must be positive',
                      }),

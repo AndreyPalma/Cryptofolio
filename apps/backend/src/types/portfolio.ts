@@ -126,6 +126,39 @@ export const PositionHistoryResponseSchema = z.object({
 });
 export type PositionHistoryResponse = z.infer<typeof PositionHistoryResponseSchema>;
 
+// ─── Closed positions (histórico) — US-017 ────────────────────────────────────
+
+export const ClosedCycleSchema = z.object({
+  cycleNumber: z.number().int().positive(),
+  walletId: z.string(),
+  walletLabel: z.string().nullable(),
+  openedAt: z.string(),
+  closedAt: z.string(),
+  totalCostUsd: z.string(),
+  totalProceedsUsd: z.string(),
+  realizedPnlUsd: z.string(),
+  realizedPnlPct: z.string().nullable(),
+});
+export type ClosedCycle = z.infer<typeof ClosedCycleSchema>;
+
+export const ClosedTokenGroupSchema = z.object({
+  tokenId: z.string(),
+  symbol: z.string(),
+  network: TokenNetworkSchema,
+  contractAddress: z.string().nullable(),
+  totalRealizedPnlUsd: z.string(),
+  cycleCount: z.number().int().nonnegative(),
+  cycles: z.array(ClosedCycleSchema),
+});
+export type ClosedTokenGroup = z.infer<typeof ClosedTokenGroupSchema>;
+
+export const ClosedPositionsResponseSchema = z.object({
+  totalRealizedPnlUsd: z.string(),
+  totalClosedCycles: z.number().int().nonnegative(),
+  byToken: z.array(ClosedTokenGroupSchema),
+});
+export type ClosedPositionsResponse = z.infer<typeof ClosedPositionsResponseSchema>;
+
 // ─── PriceService result type ─────────────────────────────────────────────────
 
 export type PriceResult =

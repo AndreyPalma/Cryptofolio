@@ -121,7 +121,7 @@ export function useTokenDetail(
       }
       document.removeEventListener("visibilitychange", onVisibility);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [contractAddress, network, walletId]);
 
   return { data, loading, error, lastUpdated, isRefetching, refresh };

@@ -26,10 +26,10 @@ const DUST_NOTE = 'Small differences are expected due to Binance dust conversion
 
 // ─── In-memory cache ──────────────────────────────────────────────────────────
 
-type CacheEntry = {
-  snapshot: Array<{ asset: string; free: string; locked: string }>;
+interface CacheEntry {
+  snapshot: { asset: string; free: string; locked: string }[];
   expiresAt: number;
-};
+}
 
 const snapshotCache = new Map<string, CacheEntry>();
 
@@ -54,7 +54,7 @@ export class BalanceValidatorService {
 
     // 2. Get Binance snapshot — check cache first
     const cached = snapshotCache.get(userId);
-    let snapshotAssets: Array<{ asset: string; free: string; locked: string }>;
+    let snapshotAssets: { asset: string; free: string; locked: string }[];
 
     if (cached && cached.expiresAt > Date.now()) {
       snapshotAssets = cached.snapshot;

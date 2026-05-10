@@ -114,15 +114,15 @@ export function AddTransactionPage() {
     const errors: FieldErrors = {};
 
     // Guard: all required fields
-    if (!walletId) errors["wallet"] = "Wallet is required";
-    if (!tokenId) errors["token"] = "Token is required";
-    if (!dateLocal) errors["dateLocal"] = "Date & Time is required";
+    if (!walletId) errors.wallet = "Wallet is required";
+    if (!tokenId) errors.token = "Token is required";
+    if (!dateLocal) errors.dateLocal = "Date & Time is required";
 
     const amountError = validateAmount(amount);
-    if (amountError) errors["amount"] = amountError;
+    if (amountError) errors.amount = amountError;
 
     const priceError = validatePriceUsd(priceUsd, type);
-    if (priceError) errors["priceUsd"] = priceError;
+    if (priceError) errors.priceUsd = priceError;
 
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
@@ -183,7 +183,7 @@ export function AddTransactionPage() {
       setCostSource("MANUAL");
     }
     // Clear price error when user types
-    if (fieldErrors["priceUsd"]) {
+    if (fieldErrors.priceUsd) {
       setFieldErrors((prev) => ({ ...prev, priceUsd: undefined }));
     }
   }
@@ -221,9 +221,9 @@ export function AddTransactionPage() {
                 setFieldErrors((prev) => ({ ...prev, wallet: undefined }));
               }}
             />
-            {fieldErrors["wallet"] && (
+            {fieldErrors.wallet && (
               <p className="mt-1 text-sm text-red-400" role="alert">
-                {fieldErrors["wallet"]}
+                {fieldErrors.wallet}
               </p>
             )}
           </div>
@@ -238,9 +238,9 @@ export function AddTransactionPage() {
                 setFieldErrors((prev) => ({ ...prev, token: undefined }));
               }}
             />
-            {fieldErrors["token"] && (
+            {fieldErrors.token && (
               <p className="mt-1 text-sm text-red-400" role="alert">
-                {fieldErrors["token"]}
+                {fieldErrors.token}
               </p>
             )}
           </div>
@@ -257,9 +257,9 @@ export function AddTransactionPage() {
           {/* Date & Time */}
           <div>
             <DateTimeInput value={dateLocal} onChange={setDateLocal} />
-            {fieldErrors["dateLocal"] && (
+            {fieldErrors.dateLocal && (
               <p className="mt-1 text-sm text-red-400" role="alert">
-                {fieldErrors["dateLocal"]}
+                {fieldErrors.dateLocal}
               </p>
             )}
           </div>
@@ -273,7 +273,7 @@ export function AddTransactionPage() {
             }}
             currentBalance={currentBalance}
             type={type}
-            fieldError={fieldErrors["amount"] ?? null}
+            fieldError={fieldErrors.amount ?? null}
           />
 
           {/* TRANSFER_IN inheritance suggestion */}
@@ -290,7 +290,7 @@ export function AddTransactionPage() {
             value={priceUsd}
             onChange={handlePriceChange}
             type={type}
-            fieldError={fieldErrors["priceUsd"] ?? null}
+            fieldError={fieldErrors.priceUsd ?? null}
           />
 
           {/* WAC Preview */}

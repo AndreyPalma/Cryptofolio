@@ -8,7 +8,7 @@ interface TransactionTypeSelectProps {
   onChange: (type: TransactionType) => void;
 }
 
-const TRANSACTION_TYPES: Array<{ value: TransactionType; label: string }> = [
+const TRANSACTION_TYPES: { value: TransactionType; label: string }[] = [
   { value: "BUY", label: "BUY" },
   { value: "SELL", label: "SELL" },
   { value: "SWAP_IN", label: "SWAP_IN" },
@@ -28,7 +28,7 @@ export function TransactionTypeSelect({ value, onChange }: TransactionTypeSelect
       <select
         id="tx-type"
         value={value}
-        onChange={(e) => onChange(e.target.value as TransactionType)}
+        onChange={(e) => { onChange(e.target.value as TransactionType); }}
         className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-white focus:border-indigo-500 focus:outline-none"
       >
         {TRANSACTION_TYPES.map((t) => (

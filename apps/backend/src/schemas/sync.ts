@@ -9,7 +9,7 @@ export type SyncParams = z.infer<typeof SyncParamsSchema>;
 // Slim response shape — full Transaction shape lives in types/transaction.ts
 const SyncedTxSchema = z.object({
   id: z.uuid(),
-  type: z.enum(['BUY', 'SELL', 'SWAP_IN', 'SWAP_OUT', 'TRANSFER_IN', 'TRANSFER_OUT']),
+  type: z.enum(['BUY', 'SELL', 'SWAP_IN', 'SWAP_OUT', 'TRANSFER_IN', 'TRANSFER_OUT', 'FIAT_IN', 'FIAT_OUT']),
   txHash: z.string(),
   blockTimestamp: z.string(),                  // ISO string
   amount: z.string(),
@@ -49,6 +49,7 @@ export const BinanceSyncResultSchema = z.object({
     inherited: z.number().int().nonnegative(),
     manual: z.number().int().nonnegative(),
   }),
+  fiat: z.number().int().nonnegative(),
   tokensCreated: z.number().int().nonnegative(),
 });
 export type BinanceSyncResult = z.infer<typeof BinanceSyncResultSchema>;

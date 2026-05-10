@@ -1,5 +1,5 @@
-// binance-sync.test.ts — US-012 A1
-// TDD tests for BinanceSyncService.sync() last_synced_at fix.
+// binance-sync.test.ts — US-012 A1 / US-014
+// TDD tests for BinanceSyncService.sync() — adapted for SyncRunHelper flow.
 // No real DB. No real HTTP.
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
@@ -32,6 +32,8 @@ function makeMinimalBinanceClient(): BinanceApiClient {
     getConvertHistory: vi.fn().mockResolvedValue([]),
     getWithdrawHistory: vi.fn().mockResolvedValue([]),
     getDepositHistory: vi.fn().mockResolvedValue([]),
+    getFiatOrders: vi.fn().mockResolvedValue([]),
+    getFiatPayments: vi.fn().mockResolvedValue([]),
   };
 }
 
@@ -39,35 +41,54 @@ function makeMinimalPriceService(): PriceService {
   return {
     getOnChainPrice: vi.fn().mockResolvedValue({ priceUsd: '1.0' }),
     getCexPrice: vi.fn().mockResolvedValue({ priceUsd: '1.0' }),
+    getOnChainPricesBulk: vi.fn().mockResolvedValue(new Map()),
+    getFiatToUsdAt: vi.fn().mockResolvedValue('1'),
   } as unknown as PriceService;
 }
 
+const RUN_ID = 'run-uuid-001';
+
 /**
- * Builds a PoolClient mock that:
- *  - Returns a CEX wallet row on the first query (wallet lookup via pool.query)
- *  - Handles the cursor queries (getCursor / setCursor) for syncTrades etc.
- *  - Tracks all query calls so we can assert on them
+ * Builds a Pool mock compatible with the US-014 flow:
+ *  - pool.query() handles wallet SELECT, SyncRunHelper INSERT, cursor reads,
+ *    positions SELECT (loadInitial), last_synced_at UPDATE, discoverAssets, etc.
+ *  - pool.connect() returns a PoolClient for SyncRunHelper.commitSuccess()
  */
-function makePoolAndClient(opts: {
+function makePool(opts: {
   walletRow: { id: string; wallet_type: 'ON_CHAIN' | 'CEX'; address: string | null };
   updateShouldFail?: boolean;
-}): { pool: Pool; pgc: PoolClient; allQueries: string[] } {
+}): { pool: Pool; allQueries: string[] } {
   const allQueries: string[] = [];
 
-  // The pool.query() is used for the initial wallet SELECT
   const poolQueryFn = vi.fn().mockImplementation((sql: string) => {
     allQueries.push(sql);
-    if (sql.includes('SELECT id, wallet_type, address FROM wallets')) {
+
+    // Wallet lookup
+    if (sql.includes('SELECT id, wallet_type')) {
       return Promise.resolve({ rows: [opts.walletRow], rowCount: 1 });
     }
-    return Promise.resolve({ rows: [], rowCount: 0 });
-  });
 
-  // pgc is the connected client used for sub-methods and the last_synced_at UPDATE
-  const pgcQueryFn = vi.fn().mockImplementation((sql: string) => {
-    allQueries.push(sql);
+    // SyncRunHelper.start() — INSERT sync_runs
+    if (sql.includes('INSERT INTO sync_runs')) {
+      return Promise.resolve({ rows: [{ id: RUN_ID }], rowCount: 1 });
+    }
 
-    // The best-effort last_synced_at UPDATE
+    // loadInitial — SELECT positions
+    if (sql.includes('FROM positions') && sql.includes('WHERE wallet_id')) {
+      return Promise.resolve({ rows: [], rowCount: 0 });
+    }
+
+    // Cursor reads
+    if (sql.includes('SELECT last_value FROM wallet_sync_cursors')) {
+      return Promise.resolve({ rows: [], rowCount: 0 });
+    }
+
+    // discoverAssets — SELECT DISTINCT tokens
+    if (sql.includes('SELECT DISTINCT') && sql.includes('tokens')) {
+      return Promise.resolve({ rows: [], rowCount: 0 });
+    }
+
+    // last_synced_at UPDATE
     if (sql.includes('UPDATE wallets SET last_synced_at')) {
       if (opts.updateShouldFail) {
         return Promise.reject(new Error('DB connection lost'));
@@ -75,35 +96,47 @@ function makePoolAndClient(opts: {
       return Promise.resolve({ rows: [], rowCount: 1 });
     }
 
-    // BEGIN / COMMIT / ROLLBACK
-    if (/^(BEGIN|COMMIT|ROLLBACK)$/.test(sql.trim())) {
-      return Promise.resolve({ rows: [], rowCount: 0 });
-    }
-
-    // Cursor reads → no cursor stored
-    if (sql.includes('SELECT last_value FROM wallet_sync_cursors')) {
-      return Promise.resolve({ rows: [], rowCount: 0 });
-    }
-
-    // Cursor writes
-    if (sql.includes('INSERT INTO wallet_sync_cursors')) {
+    // DELETE sync_runs (rollback)
+    if (sql.includes('DELETE FROM sync_runs')) {
       return Promise.resolve({ rows: [], rowCount: 1 });
     }
 
     return Promise.resolve({ rows: [], rowCount: 0 });
   });
 
-  const pgc = {
-    query: pgcQueryFn,
+  // commitSuccess uses pool.connect() for its transaction
+  const commitClientQueryFn = vi.fn().mockImplementation((sql: string) => {
+    allQueries.push(sql);
+
+    // SELECT sync_runs for commitSuccess
+    if (sql.includes('SELECT wallet_id FROM sync_runs')) {
+      return Promise.resolve({ rows: [{ wallet_id: opts.walletRow.id }], rowCount: 1 });
+    }
+
+    // BEGIN / COMMIT / ROLLBACK
+    if (/^(BEGIN|COMMIT|ROLLBACK)$/i.test(sql.trim())) {
+      return Promise.resolve({ rows: [], rowCount: 0 });
+    }
+
+    // UPDATE sync_runs SET status='completed'
+    if (sql.includes('UPDATE sync_runs')) {
+      return Promise.resolve({ rows: [], rowCount: 1 });
+    }
+
+    return Promise.resolve({ rows: [], rowCount: 0 });
+  });
+
+  const commitClient = {
+    query: commitClientQueryFn,
     release: vi.fn(),
   } as unknown as PoolClient;
 
   const pool = {
     query: poolQueryFn,
-    connect: vi.fn().mockResolvedValue(pgc),
+    connect: vi.fn().mockResolvedValue(commitClient),
   } as unknown as Pool;
 
-  return { pool, pgc, allQueries };
+  return { pool, allQueries };
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -116,41 +149,36 @@ describe('BinanceSyncService.sync() — last_synced_at fix (A1)', () => {
   const CEX_WALLET = { id: 'wallet-uuid-1', wallet_type: 'CEX' as const, address: null };
 
   it('A1-01 — sync() exitoso ejecuta UPDATE wallets SET last_synced_at', async () => {
-    const { pool, pgc } = makePoolAndClient({ walletRow: CEX_WALLET });
+    const { pool, allQueries } = makePool({ walletRow: CEX_WALLET });
     const binanceClient = makeMinimalBinanceClient();
     const priceService = makeMinimalPriceService();
 
     const service = new BinanceSyncService({ pool, priceService, binanceClient, log: mockLog });
     const result = await service.sync(CEX_WALLET.id, 'user-uuid');
 
-    // sync() must return a BinanceSyncResult without throwing
     expect(result).toBeDefined();
     expect(result).toHaveProperty('trades');
     expect(result).toHaveProperty('converts');
     expect(result).toHaveProperty('withdrawals');
     expect(result).toHaveProperty('deposits');
+    expect(result).toHaveProperty('fiat');
 
-    // The pgc.query must have been called with the last_synced_at UPDATE
-    const pgcCalls: string[] = (pgc.query as ReturnType<typeof vi.fn>).mock.calls.map(
-      (args: unknown[]) => args[0] as string,
-    );
-    const hasUpdateCall = pgcCalls.some((sql) => sql.includes('UPDATE wallets SET last_synced_at'));
+    const hasUpdateCall = allQueries.some((sql) => sql.includes('UPDATE wallets SET last_synced_at'));
     expect(hasUpdateCall).toBe(true);
   });
 
   it('A1-02 — si UPDATE last_synced_at falla, sync() NO lanza excepción (best-effort)', async () => {
-    const { pool } = makePoolAndClient({ walletRow: CEX_WALLET, updateShouldFail: true });
+    const { pool } = makePool({ walletRow: CEX_WALLET, updateShouldFail: true });
     const binanceClient = makeMinimalBinanceClient();
     const priceService = makeMinimalPriceService();
 
     const service = new BinanceSyncService({ pool, priceService, binanceClient, log: mockLog });
 
-    // Must NOT throw even though the UPDATE fails
     await expect(service.sync(CEX_WALLET.id, 'user-uuid')).resolves.toBeDefined();
   });
 
   it('A1-03 — sync() retorna BinanceSyncResult completo incluso cuando UPDATE falla', async () => {
-    const { pool } = makePoolAndClient({ walletRow: CEX_WALLET, updateShouldFail: true });
+    const { pool } = makePool({ walletRow: CEX_WALLET, updateShouldFail: true });
     const binanceClient = makeMinimalBinanceClient();
     const priceService = makeMinimalPriceService();
 
@@ -161,6 +189,7 @@ describe('BinanceSyncService.sync() — last_synced_at fix (A1)', () => {
     expect(result.converts).toEqual({ synced: 0, skipped: 0 });
     expect(result.withdrawals).toEqual({ synced: 0, skipped: 0 });
     expect(result.deposits).toEqual({ synced: 0, skipped: 0, inherited: 0, manual: 0 });
+    expect(result.fiat).toBe(0);
     expect(result.tokensCreated).toBe(0);
   });
 });

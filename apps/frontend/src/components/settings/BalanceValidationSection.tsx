@@ -16,7 +16,7 @@ export function BalanceValidationSection() {
       <button
         type="button"
         data-testid="bv-toggle"
-        onClick={() => setIsOpen((v) => !v)}
+        onClick={() => { setIsOpen((v) => !v); }}
         className="flex w-full items-center justify-between text-left"
       >
         <h2 className="text-lg font-semibold text-white">Balance Validation</h2>

@@ -37,8 +37,8 @@ describe("useSettingsWallets", () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     expect(result.current.data).not.toBeNull();
-    expect(result.current.data![0].lastSyncedAt).toBeInstanceOf(Date);
-    expect(result.current.data![0].lastSyncedAt!.toISOString()).toBe(
+    expect(result.current.data![0]!.lastSyncedAt).toBeInstanceOf(Date);
+    expect(result.current.data![0]!.lastSyncedAt!.toISOString()).toBe(
       "2026-05-08T10:00:00.000Z",
     );
     expect(result.current.error).toBeNull();
@@ -50,7 +50,7 @@ describe("useSettingsWallets", () => {
     const { result } = renderHook(() => useSettingsWallets());
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    const wallet = result.current.data![0];
+    const wallet = result.current.data![0]!;
     expect(wallet.id).toBe("wallet-1");
     expect(wallet.walletType).toBe("ON_CHAIN");
     expect(wallet.address).toBe("0xabc123");
@@ -85,13 +85,13 @@ describe("useSettingsWallets", () => {
     const { result } = renderHook(() => useSettingsWallets());
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    expect(result.current.data![0].id).toBe("wallet-1");
+    expect(result.current.data![0]!.id).toBe("wallet-1");
 
     await act(async () => {
       await result.current.refetch();
     });
 
-    expect(result.current.data![0].id).toBe("wallet-2");
+    expect(result.current.data![0]!.id).toBe("wallet-2");
   });
 
   it("sets error when apiClient.get rejects", async () => {
@@ -112,6 +112,6 @@ describe("useSettingsWallets", () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     expect(result.current.data).not.toBeNull();
-    expect(result.current.data![0].lastSyncedAt).toBeNull();
+    expect(result.current.data![0]!.lastSyncedAt).toBeNull();
   });
 });

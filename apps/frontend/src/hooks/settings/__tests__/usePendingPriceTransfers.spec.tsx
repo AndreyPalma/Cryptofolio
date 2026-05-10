@@ -55,7 +55,7 @@ describe("usePendingPriceTransfers", () => {
     const { result } = renderHook(() => usePendingPriceTransfers());
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    const tx = result.current.data!.transactions[0];
+    const tx = result.current.data!.transactions[0]!;
     expect(tx.blockTimestamp).toBeInstanceOf(Date);
     expect(tx.blockTimestamp.toISOString()).toBe("2026-05-08T10:00:00.000Z");
   });
@@ -66,7 +66,7 @@ describe("usePendingPriceTransfers", () => {
     const { result } = renderHook(() => usePendingPriceTransfers());
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    const tx = result.current.data!.transactions[0];
+    const tx = result.current.data!.transactions[0]!;
     expect(tx.id).toBe("tx-1");
     expect(tx.walletId).toBe("wallet-1");
     expect(tx.tokenId).toBe("token-1");

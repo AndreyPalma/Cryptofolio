@@ -133,6 +133,58 @@ Las transacciones CEX MUST ser únicas por `(cex_trade_id, tx_log_index) WHERE c
 - WHEN se intenta insertar otro `(cex_trade_id=999, tx_log_index=0)`
 - THEN el INSERT MUST fallar con violation del UNIQUE parcial
 
+### Requirement: `transaction_type` ENUM incluye FIAT_IN y FIAT_OUT (US-013)
+
+El ENUM `transaction_type` MUST contener 8 valores tras la migración `0005_fiat_types_cex_order_id.sql`: los 6 originales más `FIAT_IN` y `FIAT_OUT`. `FIAT_IN` actúa como `BUY` en el position engine (recalcula WAC + incrementa balance); `FIAT_OUT` actúa como `SELL` (reduce balance, genera P&L, no modifica WAC). No se requieren cambios en `engine.ts` — el flujo `isInbound → appendToOpenPosition` / `isOutbound → reduceOpenPosition` cubre los nuevos tipos automáticamente.
+
+#### Scenario: Enum extendido acepta FIAT_IN y FIAT_OUT
+
+- GIVEN schema actualizado con la migración `0005` aplicada
+- WHEN se inserta una transacción con `type = 'FIAT_IN'`
+- THEN el INSERT MUST tener éxito
+- AND lo mismo MUST aplicar para `type = 'FIAT_OUT'`
+
+#### Scenario: El enum mantiene los 8 valores tras la migración
+
+- GIVEN schema con `0005` aplicada
+- WHEN se consulta `pg_enum WHERE enumtypid = 'transaction_type'::regtype`
+- THEN el resultado MUST incluir exactamente 8 valores: `BUY`, `SELL`, `SWAP_IN`, `SWAP_OUT`, `TRANSFER_IN`, `TRANSFER_OUT`, `FIAT_IN`, `FIAT_OUT`
+
+#### Scenario: Migración down no elimina enum values (limitación PostgreSQL conocida)
+
+- GIVEN migración `0005` aplicada y luego revertida (down)
+- WHEN se consulta `pg_enum` por el tipo `transaction_type`
+- THEN `FIAT_IN` y `FIAT_OUT` MUST permanecer en el tipo — PostgreSQL no soporta `DROP VALUE`
+- AND el archivo de migración MUST documentar explícitamente esta limitación con comentario
+
+### Requirement: Columna `transactions.cex_order_id` con unicidad parcial (US-013)
+
+`transactions` MUST soportar una columna `cex_order_id TEXT NULL` introducida por la migración `0005`. El índice parcial `transactions_cex_order_id_unique` MUST garantizar unicidad `WHERE cex_order_id IS NOT NULL`. `cex_trade_id` (BIGINT, para trades y converts de Binance) y `cex_order_id` (TEXT, para fiat orders de Binance) son columnas separadas e independientes; ambas pueden ser NULL en filas on-chain o MANUAL.
+
+#### Scenario: Dos filas fiat con cex_order_id distintos coexisten
+
+- GIVEN migración `0005` aplicada
+- WHEN se insertan dos transacciones con `cex_order_id='order-001'` y `cex_order_id='order-002'`
+- THEN ambos INSERTs MUST tener éxito
+
+#### Scenario: Múltiples filas con cex_order_id = NULL coexisten (índice parcial ignora NULLs)
+
+- GIVEN migración `0005` aplicada
+- WHEN se insertan múltiples transacciones on-chain con `cex_order_id = NULL`
+- THEN todos los INSERTs MUST tener éxito
+
+#### Scenario: Filas pre-existentes de trades/converts no se ven afectadas
+
+- GIVEN filas con `cex_trade_id NOT NULL` y `cex_order_id = NULL` pre-existentes
+- WHEN se ejecuta la migración `0005`
+- THEN las filas existentes MUST mantener `cex_order_id = NULL` sin error
+
+#### Scenario: cex_order_id duplicado falla (NEGATIVE)
+
+- GIVEN una fila con `cex_order_id = 'order-dup-123'` ya insertada
+- WHEN se intenta insertar otra fila con `cex_order_id = 'order-dup-123'`
+- THEN el INSERT MUST fallar con violación del índice único `transactions_cex_order_id_unique`
+
 ### Requirement: `api_credentials.service_name` ENUM con nombres canónicos
 
 `service_name` ENUM MUST incluir `'ETHERSCAN'`, `'BSCTRACE'`, `'BINANCE_API_KEY'`, `'BINANCE_SECRET_KEY'`, `'TELEGRAM'`. SHALL NOT incluir `'BINANCE_API_SECRET'`.

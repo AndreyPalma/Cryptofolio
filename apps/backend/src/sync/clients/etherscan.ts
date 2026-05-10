@@ -56,7 +56,7 @@ function scrubUrl(url: URL): string {
 function normalizeNormalTx(tx: EtherscanTx): NormalizedTx {
   const methodId =
     tx.input && tx.input.length >= 10 && tx.input !== '0x'
-      ? (tx.input.slice(0, 10).toLowerCase() as string)
+      ? (tx.input.slice(0, 10).toLowerCase())
       : undefined;
 
   return {

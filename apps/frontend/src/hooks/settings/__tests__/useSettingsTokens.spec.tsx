@@ -38,7 +38,7 @@ describe("useSettingsTokens", () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     expect(result.current.data).not.toBeNull();
-    const token = result.current.data![0];
+    const token = result.current.data![0]!;
     expect(token.id).toBe("token-1");
     expect(token.symbol).toBe("ETH");
     expect(token.isHidden).toBe(false);
@@ -61,7 +61,7 @@ describe("useSettingsTokens", () => {
 
     expect(mockPut).toHaveBeenCalledWith("/api/tokens/token-1", { is_hidden: true });
     // data should be updated after success
-    expect(result.current.data![0].isHidden).toBe(true);
+    expect(result.current.data![0]!.isHidden).toBe(true);
   });
 
   it("updateToken calls apiClient.put with snake_case patch for targetExitPrice", async () => {
@@ -79,7 +79,7 @@ describe("useSettingsTokens", () => {
     expect(mockPut).toHaveBeenCalledWith("/api/tokens/token-1", {
       target_exit_price: "5000.00",
     });
-    expect(result.current.data![0].targetExitPrice).toBe("5000.00");
+    expect(result.current.data![0]!.targetExitPrice).toBe("5000.00");
   });
 
   it("updateToken sends null for targetExitPrice when null is passed", async () => {
@@ -97,7 +97,7 @@ describe("useSettingsTokens", () => {
     expect(mockPut).toHaveBeenCalledWith("/api/tokens/token-1", {
       target_exit_price: null,
     });
-    expect(result.current.data![0].targetExitPrice).toBeNull();
+    expect(result.current.data![0]!.targetExitPrice).toBeNull();
   });
 
   it("updateToken throws error and data does not change when PUT rejects", async () => {
@@ -114,7 +114,7 @@ describe("useSettingsTokens", () => {
     ).rejects.toThrow("HTTP 500");
 
     // data should remain unchanged since PUT failed
-    expect(result.current.data![0].isHidden).toBe(false);
+    expect(result.current.data![0]!.isHidden).toBe(false);
   });
 
   it("sets error when initial fetch rejects", async () => {

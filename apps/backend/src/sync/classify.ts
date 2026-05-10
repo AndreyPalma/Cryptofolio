@@ -9,18 +9,18 @@ import { SWAP_ROUTERS } from './constants/routers.js';
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 /** All raw rows that share a tx_hash, collected together. */
-export type TxGroup = {
+export interface TxGroup {
   readonly txHash: string;
   readonly blockNumber: number;
   readonly transactionIndex: number;
   readonly timeStamp: number;
   readonly normalTx: NormalizedTx | null;
   readonly tokenTxs: readonly NormalizedTokenTx[];
-};
+}
 
 /** A row that is ready to be persisted. Pre-classified and pre-decomposed.
  *  tx_log_index 0/1 for swaps, 0 for everything else. */
-export type DecomposedTransaction = {
+export interface DecomposedTransaction {
   readonly id: string;                      // uuid pre-generated so swap legs cross-link
   readonly type: TransactionType;
   readonly txHash: string;
@@ -36,7 +36,7 @@ export type DecomposedTransaction = {
   readonly tokenDecimals: number;
   readonly amount: string;                  // human-readable decimal (de-scaled)
   readonly source: Extract<TransactionSource, 'ETHERSCAN' | 'BSCTRACE'>;
-};
+}
 
 // ─── Native pseudo-addresses (used when there is no token contract) ───────────
 const NATIVE_SYMBOL: Record<'ETH' | 'BSC', string> = {

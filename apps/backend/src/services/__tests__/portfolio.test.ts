@@ -18,6 +18,7 @@ function makeStubPriceService(overrides: Partial<PriceService> = {}): PriceServi
     getOnChainPrice: vi.fn().mockResolvedValue({ priceUsd: '2000.00' }),
     getCexPrice: vi.fn().mockResolvedValue({ priceUsd: '2000.00' }),
     getOnChainPricesBulk: vi.fn().mockResolvedValue(new Map()),
+    getFiatToUsdAt: vi.fn().mockResolvedValue('1'),
     ...overrides,
   };
 }

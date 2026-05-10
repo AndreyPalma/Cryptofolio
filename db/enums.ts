@@ -13,6 +13,8 @@ export const TRANSACTION_TYPES = [
   "SWAP_OUT",
   "TRANSFER_IN",
   "TRANSFER_OUT",
+  "FIAT_IN",   // REQ-002
+  "FIAT_OUT",  // REQ-002
 ] as const;
 
 export const TRANSACTION_SOURCES = ["ETHERSCAN", "BSCTRACE", "BINANCE", "MANUAL"] as const;

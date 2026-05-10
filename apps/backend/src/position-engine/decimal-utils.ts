@@ -16,12 +16,22 @@ export function roundToStorage(value: Decimal): string {
 
 export function isInbound(
   type: TransactionType,
-): type is 'BUY' | 'SWAP_IN' | 'TRANSFER_IN' {
-  return type === 'BUY' || type === 'SWAP_IN' || type === 'TRANSFER_IN';
+): type is 'BUY' | 'SWAP_IN' | 'TRANSFER_IN' | 'FIAT_IN' {
+  return (
+    type === 'BUY' ||
+    type === 'SWAP_IN' ||
+    type === 'TRANSFER_IN' ||
+    type === 'FIAT_IN'
+  );
 }
 
 export function isOutbound(
   type: TransactionType,
-): type is 'SELL' | 'SWAP_OUT' | 'TRANSFER_OUT' {
-  return type === 'SELL' || type === 'SWAP_OUT' || type === 'TRANSFER_OUT';
+): type is 'SELL' | 'SWAP_OUT' | 'TRANSFER_OUT' | 'FIAT_OUT' {
+  return (
+    type === 'SELL' ||
+    type === 'SWAP_OUT' ||
+    type === 'TRANSFER_OUT' ||
+    type === 'FIAT_OUT'
+  );
 }

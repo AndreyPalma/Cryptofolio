@@ -54,7 +54,7 @@ function ToastRoot({ toast }: ToastRootProps) {
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toast, setToast] = useState<ToastState | null>(null);
   const idRef = useRef(0);
-  const timerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const timerRef = useRef<number | null>(null);
 
   function show(message: string, variant: ToastVariant = "success"): void {
     if (timerRef.current !== null) {

@@ -4,7 +4,7 @@
 // strings to avoid losing precision on uint256 amounts.
 
 /** Normalized normal (ETH/BNB value) transaction. */
-export type NormalizedTx = {
+export interface NormalizedTx {
   readonly txHash: string;
   readonly blockNumber: number;
   readonly transactionIndex: number;  // intra-block ordering for stable sort
@@ -15,10 +15,10 @@ export type NormalizedTx = {
   readonly isError: '0' | '1';
   readonly gasUsed: string;
   readonly methodId?: string;          // first 4 bytes of input data, lower-cased '0x...'
-};
+}
 
 /** Normalized ERC20 token transfer log. */
-export type NormalizedTokenTx = {
+export interface NormalizedTokenTx {
   readonly txHash: string;
   readonly blockNumber: number;
   readonly transactionIndex: number;
@@ -31,7 +31,7 @@ export type NormalizedTokenTx = {
   readonly tokenName: string;
   readonly tokenDecimal: number;
   readonly value: string;              // raw, scaled by 10^tokenDecimal
-};
+}
 
 /** Common interface implemented by EtherscanClient and BSCTraceClient. */
 export interface OnChainApiClient {

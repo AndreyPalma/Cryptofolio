@@ -8,6 +8,7 @@ import { ZodError } from "zod";
 import { healthPlugin } from "./plugins/health.js";
 import { bootstrapAuth, ADMIN_USER_ID } from "./services/auth-bootstrap.js";
 import authPlugin from "./plugins/auth.js";
+import { SyncOrchestrator } from './services/sync-orchestrator.js';
 
 export interface BuildServerOptions {
   /** JWT secret for @fastify/jwt. Required for auth to work. */
@@ -73,6 +74,10 @@ export async function buildServer(
     await fastify.register(authPlugin);
   }
 
+  // SyncOrchestrator — in-memory wallet-level lock for sync concurrency control (US-015)
+  const syncOrchestrator = new SyncOrchestrator(fastify.log);
+  fastify.decorate('syncOrchestrator', syncOrchestrator);
+
   // Domain route plugins — registered after authPlugin so onRequest hook covers them
   const { walletRoutes } = await import('./routes/wallets.js');
   const { tokenRoutes } = await import('./routes/tokens.js');
@@ -112,6 +117,16 @@ if (isMain) {
        ON CONFLICT (id) DO NOTHING`,
       [ADMIN_USER_ID, '__bootstrapped__'],
     );
+
+    // Clean up orphaned sync runs from previous crashes (RD-017).
+    // Placed here (isMain block) instead of inside buildServer() so unit tests
+    // that import buildServer() don't require a live DB or sync_runs table.
+    // Effect is equivalent: cleanup runs before any routes are registered.
+    const { cleanupStaleRuns } = await import('./services/sync-run-helper.js');
+    const { deleted } = await cleanupStaleRuns(pool);
+    if (deleted > 0) {
+      console.info(`Cleaned up ${deleted} stale sync runs`);
+    }
 
     const server = await buildServer({ jwtSecret: env.JWT_SECRET });
     await server.listen({ port: env.PORT, host: "0.0.0.0" });

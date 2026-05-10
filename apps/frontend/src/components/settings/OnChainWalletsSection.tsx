@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useSettingsWallets } from "../../hooks/settings/useSettingsWallets";
-import { useSyncWallet } from "../../hooks/settings/useSyncWallet";
+import { useSyncStream } from "../../hooks/settings/useSyncStream";
 import { usePendingPriceTransfers } from "../../hooks/settings/usePendingPriceTransfers";
 import { useRelativeTime } from "../../hooks/useRelativeTime";
 import { useWalletMutations } from "../../hooks/settings/useWalletMutations";
-import { SyncResultInline } from "./SyncResultInline";
+import { SyncProgress } from "./SyncProgress";
 import type { SettingsWallet } from "../../types/settings";
 
 function truncateAddress(addr: string): string {
@@ -17,7 +17,7 @@ function CopyButton({ address }: { address: string }) {
   const handleCopy = async () => {
     await navigator.clipboard.writeText(address);
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setTimeout(() => { setCopied(false); }, 2000);
   };
 
   return (
@@ -51,16 +51,25 @@ function WalletRow({
   onDelete: (id: string) => Promise<void>;
   isDeleting: boolean;
 }) {
-  const { states, sync } = useSyncWallet();
+  const { steps, status, error, summary, start, cancel, retry, batchProgress } = useSyncStream(
+    wallet.id,
+    'ON_CHAIN',
+  );
   const { refetch: pendingRefetch } = usePendingPriceTransfers();
-  const state = states[wallet.id] ?? { status: "idle" };
-  const isSyncing = state.status === "syncing";
+  const isBusy = status === 'syncing' || status === 'connecting';
+  const showProgress = status !== 'idle';
 
-  const handleSync = async () => {
-    await sync(wallet.id, "on-chain");
-    onSyncComplete();
-    pendingRefetch();
+  const handleSync = () => {
+    start();
   };
+
+  // Refresh wallet list when sync completes
+  const prevStatus = useRef(status);
+  if (prevStatus.current === 'syncing' && status === 'done') {
+    onSyncComplete();
+    void pendingRefetch();
+  }
+  prevStatus.current = status;
 
   return (
     <div className="rounded-lg bg-gray-800 p-4">
@@ -84,15 +93,15 @@ function WalletRow({
         </div>
         <button
           type="button"
-          disabled={isSyncing}
+          disabled={isBusy}
           onClick={handleSync}
           className="rounded bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {isSyncing ? "Syncing..." : "Sync"}
+          {isBusy ? "Syncing..." : "Sync"}
         </button>
         <button
           type="button"
-          disabled={isDeleting || isSyncing}
+          disabled={isDeleting || isBusy}
           onClick={() => void onDelete(wallet.id)}
           className="rounded bg-red-800 px-3 py-1 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
         >
@@ -100,11 +109,16 @@ function WalletRow({
         </button>
       </div>
 
-      {state.status === "success" && (
-        <SyncResultInline result={state.result} />
-      )}
-      {state.status === "error" && (
-        <p className="mt-2 text-xs text-red-400">{state.message}</p>
+      {showProgress && (
+        <SyncProgress
+          steps={steps}
+          status={status}
+          error={error}
+          summary={summary}
+          onCancel={cancel}
+          onRetry={retry}
+          batchProgress={batchProgress}
+        />
       )}
     </div>
   );
@@ -140,7 +154,7 @@ function AddWalletForm({ onSuccess, onCancel }: { onSuccess: () => void; onCance
           <input
             type="text"
             value={label}
-            onChange={(e) => setLabel(e.target.value)}
+            onChange={(e) => { setLabel(e.target.value); }}
             placeholder="My ETH wallet"
             className="w-full rounded bg-gray-700 px-3 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           />
@@ -149,7 +163,7 @@ function AddWalletForm({ onSuccess, onCancel }: { onSuccess: () => void; onCance
           <label className="block text-xs text-gray-400 mb-1">Network</label>
           <select
             value={network}
-            onChange={(e) => setNetwork(e.target.value as "ETH" | "BSC")}
+            onChange={(e) => { setNetwork(e.target.value as "ETH" | "BSC"); }}
             className="w-full rounded bg-gray-700 px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
           >
             <option value="ETH">Ethereum (ETH)</option>
@@ -162,7 +176,7 @@ function AddWalletForm({ onSuccess, onCancel }: { onSuccess: () => void; onCance
         <input
           type="text"
           value={address}
-          onChange={(e) => setAddress(e.target.value)}
+          onChange={(e) => { setAddress(e.target.value); }}
           placeholder="0x..."
           required
           className="w-full rounded bg-gray-700 px-3 py-1.5 font-mono text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
@@ -233,7 +247,7 @@ export function OnChainWalletsSection() {
         {!showForm && (
           <button
             type="button"
-            onClick={() => setShowForm(true)}
+            onClick={() => { setShowForm(true); }}
             className="rounded bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-500"
           >
             + Add Wallet
@@ -245,7 +259,7 @@ export function OnChainWalletsSection() {
         <div className="mb-3">
           <AddWalletForm
             onSuccess={() => { setShowForm(false); void walletsRefetch(); }}
-            onCancel={() => setShowForm(false)}
+            onCancel={() => { setShowForm(false); }}
           />
         </div>
       )}

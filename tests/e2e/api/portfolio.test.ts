@@ -167,7 +167,7 @@ describe.skipIf(!testUrl)('GET /api/portfolio', () => {
 
     expect(res.statusCode).toBe(200);
     const body = res.json() as {
-      tokens: Array<{ sourceType: string; symbol: string; totalBalance: string }>;
+      tokens: { sourceType: string; symbol: string; totalBalance: string }[];
       totalValueUsd: string;
     };
     expect(body.tokens.length).toBeGreaterThanOrEqual(1);
@@ -189,7 +189,7 @@ describe.skipIf(!testUrl)('GET /api/portfolio', () => {
 
     expect(res.statusCode).toBe(200);
     const body = res.json() as {
-      tokens: Array<{ priceUnavailable?: boolean }>;
+      tokens: { priceUnavailable?: boolean }[];
     };
     expect(body.tokens.length).toBeGreaterThan(0);
     for (const token of body.tokens) {
@@ -355,7 +355,7 @@ describe.skipIf(!testUrl)('GET /api/portfolio/token/:contractAddress/:network/hi
     });
 
     expect(res.statusCode).toBe(200);
-    const body = res.json() as { cycles: Array<{ cycleNumber: number; realizedPnlUsd: string }> };
+    const body = res.json() as { cycles: { cycleNumber: number; realizedPnlUsd: string }[] };
     expect(body.cycles).toHaveLength(2);
     expect(body.cycles[0]?.cycleNumber).toBe(1);
     expect(body.cycles[1]?.cycleNumber).toBe(2);

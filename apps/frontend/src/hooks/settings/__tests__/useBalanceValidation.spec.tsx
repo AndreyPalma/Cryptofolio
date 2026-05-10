@@ -101,7 +101,7 @@ describe("useBalanceValidation", () => {
     expect(result.current.state).toBe("success");
     expect(result.current.data).not.toBeNull();
     expect(result.current.data!.differences.length).toBe(1);
-    expect(result.current.data!.differences[0].asset).toBe("ETH");
+    expect(result.current.data!.differences[0]!.asset).toBe("ETH");
     expect(result.current.error).toBeNull();
   });
 

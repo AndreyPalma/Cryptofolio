@@ -1,0 +1,6 @@
+change: us-014-binance-complete-sync
+origin: US-014
+status: in-progress
+domains:
+  - binance-sync
+  - database-schema

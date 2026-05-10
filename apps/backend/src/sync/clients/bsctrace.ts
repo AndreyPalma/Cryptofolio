@@ -143,7 +143,7 @@ export function createBSCTraceClient(opts: BSCTraceClientOptions): OnChainApiCli
       let fromBlock = startBlock;
 
       // BSCTrace paginates via pageKey. We loop until no more pages.
-      // eslint-disable-next-line no-constant-condition
+       
       while (true) {
         const requestBody = {
           jsonrpc: '2.0',

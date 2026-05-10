@@ -46,13 +46,13 @@ interface CreateTransactionResponse {
 interface ApiErrorBody {
   error?: string;
   message?: string;
-  issues?: Array<{ path: string[]; message: string }>;
+  issues?: { path: string[]; message: string }[];
   currentBalance?: string;
   attempted?: string;
 }
 
 // We need to fetch with manual response handling for 4xx bodies
-const BASE_URL = (typeof import.meta !== "undefined" && (import.meta.env as Record<string, string | undefined>)["VITE_API_URL"]) ?? "";
+const BASE_URL = (typeof import.meta !== "undefined" && (import.meta.env as Record<string, string | undefined>).VITE_API_URL) ?? "";
 
 async function postTransaction(body: unknown): Promise<Response> {
   return fetch(`${BASE_URL}/api/transactions`, {

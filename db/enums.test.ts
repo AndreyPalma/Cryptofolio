@@ -1,14 +1,18 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { SQL_ENUM_DEFINITIONS } from "./enums.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const migrationPath = resolve(here, "migrations/0001_initial_schema.sql");
+const migrationsDir = resolve(here, "migrations");
+const sql = readdirSync(migrationsDir)
+  .filter((f) => f.endsWith(".sql"))
+  .sort()
+  .map((f) => readFileSync(resolve(migrationsDir, f), "utf8"))
+  .join("\n");
 
 describe("ENUM source-of-truth ↔ migration SQL drift guard", () => {
-  const sql = readFileSync(migrationPath, "utf8");
 
   for (const [enumName, members] of Object.entries(SQL_ENUM_DEFINITIONS)) {
     describe(`${enumName}`, () => {

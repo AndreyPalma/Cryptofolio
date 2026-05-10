@@ -102,3 +102,23 @@ export interface BalanceValidationData {
   takenAt: Date;
   dustNote: string;
 }
+
+// ── SSE sync stream types (US-015) ────────────────────────────────────────────
+export const SYNC_STEPS_CEX = ['fiat', 'deposits', 'withdrawals', 'converts', 'trades'] as const;
+export const SYNC_STEPS_ON_CHAIN = ['fetch_normal', 'fetch_tokens', 'classify', 'persist'] as const;
+export type CexSyncStepName = (typeof SYNC_STEPS_CEX)[number];
+export type OnChainSyncStepName = (typeof SYNC_STEPS_ON_CHAIN)[number];
+export type SyncStepName = CexSyncStepName | OnChainSyncStepName;
+export type StepStatus = 'pending' | 'running' | 'done' | 'skipped' | 'error';
+
+export interface StepState {
+  name: SyncStepName;
+  label: string;
+  status: StepStatus;
+  synced?: number;
+  skipped?: number;
+  reason?: string;
+  errorMessage?: string;
+}
+
+export type SyncStreamStatus = 'idle' | 'connecting' | 'syncing' | 'done' | 'error' | 'cancelled';

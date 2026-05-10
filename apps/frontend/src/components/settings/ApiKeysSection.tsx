@@ -96,14 +96,14 @@ export function ApiKeysSection() {
           label="ETHERSCAN_API_KEY"
           isConfigured={presence.ETHERSCAN_API_KEY}
           testState={states.etherscan}
-          onTest={() => void test("etherscan" as ApiService)}
+          onTest={() => void test("etherscan")}
           testDisabled={!presence.ETHERSCAN_API_KEY}
         />
         <ApiKeyRow
           label="BSCTRACE_API_KEY"
           isConfigured={presence.BSCTRACE_API_KEY}
           testState={states.bsctrace}
-          onTest={() => void test("bsctrace" as ApiService)}
+          onTest={() => void test("bsctrace")}
           testDisabled={!presence.BSCTRACE_API_KEY}
         />
 
@@ -129,7 +129,7 @@ export function ApiKeysSection() {
             <button
               type="button"
               disabled={!hasBinance || states.binance.status === "testing"}
-              onClick={() => void test("binance" as ApiService)}
+              onClick={() => void test("binance")}
               className="w-28 rounded bg-gray-700 px-3 py-1.5 text-xs font-medium text-gray-200 hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {states.binance.status === "testing" ? "Testing…" : "Test Binance"}

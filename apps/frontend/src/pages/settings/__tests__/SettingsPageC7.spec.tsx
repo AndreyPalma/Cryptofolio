@@ -94,6 +94,7 @@ function setupAllMocks() {
     error: null,
     validate: vi.fn(),
     cooldownSecondsRemaining: 0,
+    disabledReason: null,
   });
 }
 

@@ -22,7 +22,7 @@ export function PendingPriceBanner() {
         </p>
         {hasContractAddress ? (
           <Link
-            to={`/token/${first!.contractAddress}/${first!.tokenNetwork}`}
+            to={`/token/${first.contractAddress}/${first.tokenNetwork}`}
             className="shrink-0 rounded bg-yellow-700 px-3 py-1 text-xs font-medium text-yellow-100 hover:bg-yellow-600"
           >
             Review pending →

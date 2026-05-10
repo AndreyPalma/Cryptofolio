@@ -8,10 +8,10 @@ import type { PriceResult } from '../types/portfolio.js';
 
 // ─── Cache primitives ─────────────────────────────────────────────────────────
 
-type CacheEntry = {
+interface CacheEntry {
   readonly priceUsd: string | null; // null = fallo cacheado (negative cache)
   readonly expiresAt: number;
-};
+}
 
 const TTL_DEFILLAMA_MS = 60_000;
 const TTL_BINANCE_MS = 10_000;
@@ -77,7 +77,7 @@ const BinanceTickerSchema = z.object({
 // ─── Fetch helpers ────────────────────────────────────────────────────────────
 
 async function fetchDefiLlamaBulk(
-  requests: ReadonlyArray<{ network: 'ETH' | 'BSC'; address: string }>,
+  requests: readonly { network: 'ETH' | 'BSC'; address: string }[],
   log: FastifyBaseLogger,
 ): Promise<Map<string, PriceResult>> {
   const result = new Map<string, PriceResult>();
@@ -89,7 +89,7 @@ async function fetchDefiLlamaBulk(
 
   const url = `https://coins.llama.fi/prices/current/${coinsParam}`;
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+  const timer = setTimeout(() => { ctrl.abort(); }, FETCH_TIMEOUT_MS);
 
   try {
     const res = await fetch(url, { signal: ctrl.signal });
@@ -149,7 +149,7 @@ async function fetchBinanceTicker(
   const key = cexKey(binanceSymbol);
   const url = `https://api.binance.com/api/v3/ticker/price?symbol=${encodeURIComponent(binanceSymbol.toUpperCase())}USDT`;
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+  const timer = setTimeout(() => { ctrl.abort(); }, FETCH_TIMEOUT_MS);
 
   try {
     const res = await fetch(url, { signal: ctrl.signal });
@@ -182,8 +182,9 @@ export interface PriceService {
   getOnChainPrice(network: 'ETH' | 'BSC', address: string): Promise<PriceResult>;
   getCexPrice(binanceSymbol: string): Promise<PriceResult>;
   getOnChainPricesBulk(
-    requests: ReadonlyArray<{ network: 'ETH' | 'BSC'; address: string }>,
+    requests: readonly { network: 'ETH' | 'BSC'; address: string }[],
   ): Promise<Map<string, PriceResult>>;
+  getFiatToUsdAt(fiatCurrency: string, timestampMs: number): Promise<string | null>;
   __resetCacheForTests?(): void;
 }
 
@@ -208,7 +209,7 @@ export function createPriceService(log: FastifyBaseLogger): PriceService {
       const result = new Map<string, PriceResult>();
       if (requests.length === 0) return result;
 
-      const uncached: Array<{ network: 'ETH' | 'BSC'; address: string }> = [];
+      const uncached: { network: 'ETH' | 'BSC'; address: string }[] = [];
 
       for (const r of requests) {
         const key = onChainKey(r.network, r.address);
@@ -228,6 +229,28 @@ export function createPriceService(log: FastifyBaseLogger): PriceService {
       }
 
       return result;
+    },
+
+    async getFiatToUsdAt(fiatCurrency, _timestampMs) {
+      if (fiatCurrency.toUpperCase() === 'USD') return '1';
+
+      const symbol = `${fiatCurrency.toUpperCase()}USDT`;
+      const url = `https://api.binance.com/api/v3/ticker/price?symbol=${encodeURIComponent(symbol)}`;
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => { ctrl.abort(); }, FETCH_TIMEOUT_MS);
+
+      try {
+        const res = await fetch(url, { signal: ctrl.signal });
+        if (!res.ok) return null;
+        const json: unknown = await res.json();
+        const parsed = BinanceTickerSchema.safeParse(json);
+        if (!parsed.success) return null;
+        return parsed.data.price;
+      } catch {
+        return null;
+      } finally {
+        clearTimeout(timer);
+      }
     },
 
     __resetCacheForTests() {

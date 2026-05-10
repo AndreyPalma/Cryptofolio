@@ -40,7 +40,7 @@ function makePool(): Pool {
   return { query: mockPoolQuery, connect: vi.fn(), end: vi.fn() } as unknown as Pool;
 }
 
-function makeBinanceClient(assets: Array<{ asset: string; free: string; locked: string }>): BinanceApiClient {
+function makeBinanceClient(assets: { asset: string; free: string; locked: string }[]): BinanceApiClient {
   return {
     assertConfigured: vi.fn(),
     getAccountAssets: vi.fn().mockResolvedValue(assets),

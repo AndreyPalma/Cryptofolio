@@ -1,34 +1,38 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useSettingsWallets } from "../../hooks/settings/useSettingsWallets";
-import { useSyncWallet } from "../../hooks/settings/useSyncWallet";
 import { usePendingPriceTransfers } from "../../hooks/settings/usePendingPriceTransfers";
 import { useRelativeTime } from "../../hooks/useRelativeTime";
 import { useWalletMutations } from "../../hooks/settings/useWalletMutations";
-import { SyncResultInline } from "./SyncResultInline";
+import { useSyncStream } from "../../hooks/settings/useSyncStream";
+import { SyncProgress } from "./SyncProgress";
 import type { SettingsWallet } from "../../types/settings";
 
 function CexWalletRow({
   wallet,
-  sync,
-  syncState,
   onAfterSync,
   onDelete,
   isDeleting,
 }: {
   wallet: SettingsWallet;
-  sync: (id: string, kind: "cex") => Promise<void>;
-  syncState: { status: string; result?: unknown; message?: string };
   onAfterSync: () => void;
   onDelete: (id: string) => Promise<void>;
   isDeleting: boolean;
 }) {
   const { label } = useRelativeTime(wallet.lastSyncedAt);
-  const isSyncing = syncState.status === "syncing";
+  const { steps, status, error, summary, start, cancel, retry, batchProgress } = useSyncStream(wallet.id, 'CEX');
+  const isBusy = status === 'syncing' || status === 'connecting';
+  const showProgress = status !== 'idle';
 
-  const handleSync = async () => {
-    await sync(wallet.id, "cex");
-    onAfterSync();
+  const handleSync = () => {
+    start();
   };
+
+  // Refresh wallet list when sync completes
+  const prevStatus = useRef(status);
+  if (prevStatus.current === 'syncing' && status === 'done') {
+    onAfterSync();
+  }
+  prevStatus.current = status;
 
   return (
     <div className="rounded-lg bg-gray-800 p-4">
@@ -48,15 +52,15 @@ function CexWalletRow({
         </div>
         <button
           type="button"
-          disabled={isSyncing}
+          disabled={isBusy}
           onClick={handleSync}
           className="rounded bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {isSyncing ? "Syncing..." : "Sync"}
+          {isBusy ? "Syncing..." : "Sync"}
         </button>
         <button
           type="button"
-          disabled={isDeleting || isSyncing}
+          disabled={isDeleting || isBusy}
           onClick={() => void onDelete(wallet.id)}
           className="rounded bg-red-800 px-3 py-1 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
         >
@@ -64,11 +68,16 @@ function CexWalletRow({
         </button>
       </div>
 
-      {syncState.status === "success" && (
-        <SyncResultInline result={(syncState as { result: import("../../types/settings").SyncResultUnion }).result} />
-      )}
-      {syncState.status === "error" && (
-        <p className="mt-2 text-xs text-red-400">{(syncState as { message: string }).message}</p>
+      {showProgress && (
+        <SyncProgress
+          steps={steps}
+          status={status}
+          error={error}
+          summary={summary}
+          onCancel={cancel}
+          onRetry={retry}
+          batchProgress={batchProgress}
+        />
       )}
     </div>
   );
@@ -100,7 +109,7 @@ function AddBinanceForm({ onSuccess, onCancel }: { onSuccess: () => void; onCanc
         <input
           type="text"
           value={label}
-          onChange={(e) => setLabel(e.target.value)}
+          onChange={(e) => { setLabel(e.target.value); }}
           placeholder="My Binance"
           className="w-full rounded bg-gray-700 px-3 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
         />
@@ -131,7 +140,6 @@ function AddBinanceForm({ onSuccess, onCancel }: { onSuccess: () => void; onCanc
 
 export function ExchangeAccountsSection() {
   const { data, loading, error, refetch: walletsRefetch } = useSettingsWallets();
-  const { states, sync } = useSyncWallet();
   const { refetch: pendingRefetch } = usePendingPriceTransfers();
   const { deleteWallet, deleting } = useWalletMutations();
   const [showForm, setShowForm] = useState(false);
@@ -176,7 +184,7 @@ export function ExchangeAccountsSection() {
         {!showForm && !hasCex && (
           <button
             type="button"
-            onClick={() => setShowForm(true)}
+            onClick={() => { setShowForm(true); }}
             className="rounded bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-500"
           >
             + Add Binance
@@ -188,7 +196,7 @@ export function ExchangeAccountsSection() {
         <div className="mb-3">
           <AddBinanceForm
             onSuccess={() => { setShowForm(false); void walletsRefetch(); }}
-            onCancel={() => setShowForm(false)}
+            onCancel={() => { setShowForm(false); }}
           />
         </div>
       )}
@@ -201,8 +209,6 @@ export function ExchangeAccountsSection() {
             <CexWalletRow
               key={wallet.id}
               wallet={wallet}
-              sync={sync}
-              syncState={states[wallet.id] ?? { status: "idle" }}
               onAfterSync={() => { void walletsRefetch(); void pendingRefetch(); }}
               onDelete={handleDelete}
               isDeleting={deleting === wallet.id}

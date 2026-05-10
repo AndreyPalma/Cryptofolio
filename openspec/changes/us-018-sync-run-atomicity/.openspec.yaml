@@ -1,0 +1,8 @@
+change: us-018-sync-run-atomicity
+origin: US-018
+status: in-progress
+domains:
+  - database-schema
+  - binance-sync
+  - on-chain-sync
+  - portfolio-service

@@ -2,7 +2,7 @@
 
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
-import { getPortfolioSummary, getTokenDetail, getPositionHistory } from '../services/portfolio.js';
+import { getPortfolioSummary, getTokenDetail, getPositionHistory, getClosedPositions } from '../services/portfolio.js';
 import { createPriceService } from '../services/price.js';
 import { TokenNetworkSchema } from '../types/portfolio.js';
 import { BalanceValidatorService } from '../services/balance-validator.js';
@@ -19,6 +19,13 @@ const TokenDetailQuerySchema = z.object({
   wallet_id: z.string().optional(),
 });
 
+const ClosedPositionsQuerySchema = z.object({
+  walletId: z.string().optional(),
+  network: TokenNetworkSchema.optional(),
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+});
+
 export const portfolioRoutes: FastifyPluginAsync = async (fastify) => {
   const priceService = createPriceService(fastify.log);
 
@@ -26,6 +33,13 @@ export const portfolioRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/', async (_req, reply) => {
     const summary = await getPortfolioSummary(pool, priceService);
     return reply.status(200).send(summary);
+  });
+
+  // GET /api/portfolio/closed — US-017
+  fastify.get('/closed', async (req, reply) => {
+    const query = ClosedPositionsQuerySchema.parse(req.query);
+    const result = await getClosedPositions(pool, query);
+    return reply.status(200).send(result);
   });
 
   // GET /api/portfolio/token/:contractAddress/:network

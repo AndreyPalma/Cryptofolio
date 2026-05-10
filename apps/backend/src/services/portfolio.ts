@@ -7,6 +7,9 @@ import type {
   TokenPortfolioRow,
   TokenDetail,
   PositionHistoryEntry,
+  ClosedPositionsResponse,
+  ClosedTokenGroup,
+  ClosedCycle,
   TokenNetwork,
   PriceResult,
   PnlInfo,
@@ -88,11 +91,16 @@ const POSITION_BASE_SQL = `
 // ─── Virtual position (aggregated across wallets) ─────────────────────────────
 
 function buildVirtualPosition(rows: PositionRow[]): PositionState {
+  const firstRow = rows[0];
+  if (!firstRow) {
+    throw new Error('buildVirtualPosition requires at least one row');
+  }
+
   let totalBalance = ZERO;
   let weightedWacNum = ZERO;
   let totalCostBasis = ZERO;
   let totalRealizedPnl = ZERO;
-  let earliestOpened = rows[0]!.opened_at;
+  let earliestOpened = firstRow.opened_at;
   let maxCycle = 0;
 
   for (const r of rows) {
@@ -109,9 +117,9 @@ function buildVirtualPosition(rows: PositionRow[]): PositionState {
   const wacAggregated = totalBalance.isZero() ? ZERO : weightedWacNum.div(totalBalance);
 
   return {
-    id: rows[0]!.position_id,
-    walletId: rows[0]!.wallet_id,
-    tokenId: rows[0]!.token_id,
+    id: firstRow.position_id,
+    walletId: firstRow.wallet_id,
+    tokenId: firstRow.token_id,
     cycleNumber: maxCycle,
     status: 'OPEN',
     balance: roundToStorage(totalBalance),
@@ -126,7 +134,10 @@ function buildVirtualPosition(rows: PositionRow[]): PositionState {
 // ─── Portfolio row builder ────────────────────────────────────────────────────
 
 function buildPortfolioRow(rows: PositionRow[], priceResult: PriceResult): TokenPortfolioRow {
-  const first = rows[0]!;
+  const first = rows[0];
+  if (!first) {
+    throw new Error('buildPortfolioRow requires at least one row');
+  }
   const virtual = buildVirtualPosition(rows);
   const currentPrice = 'priceUsd' in priceResult ? priceResult.priceUsd : null;
   const wacResult = calculateWAC(virtual, currentPrice);
@@ -162,13 +173,13 @@ function buildPortfolioRow(rows: PositionRow[], priceResult: PriceResult): Token
 
 // ─── P&L enrichment per transaction ──────────────────────────────────────────
 
-function computePnl(
+export function computePnl(
   type: string,
   priceUsd: string | null,
   currentPrice: string | null,
   amount: string,
 ): PnlInfo {
-  if (type === 'BUY' || type === 'SWAP_IN' || type === 'TRANSFER_IN') {
+  if (type === 'BUY' || type === 'SWAP_IN' || type === 'TRANSFER_IN' || type === 'FIAT_IN') {
     if (priceUsd === null || currentPrice === null) {
       return { kind: 'INBOUND', lotPnlUsd: null, lotPnlPct: null };
     }
@@ -181,7 +192,7 @@ function computePnl(
       : roundToStorage(currentD.minus(priceD).div(priceD).times(100));
     return { kind: 'INBOUND', lotPnlUsd, lotPnlPct };
   }
-  // OUTBOUND: SELL, SWAP_OUT, TRANSFER_OUT
+  // OUTBOUND: SELL, SWAP_OUT, TRANSFER_OUT, FIAT_OUT
   // realizedPnlUsd = (currentPrice - priceUsd) × amount; null when either price is null
   const realizedPnlUsd =
     priceUsd !== null && currentPrice !== null
@@ -222,11 +233,12 @@ export async function getPortfolioSummary(
   }
 
   // 3. Collect price-fetch plan
-  const onChainRequests: Array<{ network: 'ETH' | 'BSC'; address: string }> = [];
+  const onChainRequests: { network: 'ETH' | 'BSC'; address: string }[] = [];
   const cexSymbolsSet = new Set<string>();
 
   for (const [, groupRows] of groups) {
-    const first = groupRows[0]!;
+    const first = groupRows[0];
+    if (!first) continue;
     if (first.wallet_type === 'ON_CHAIN') {
       onChainRequests.push({ network: first.network as 'ETH' | 'BSC', address: first.contract_address });
     } else if (first.binance_symbol) {
@@ -251,7 +263,8 @@ export async function getPortfolioSummary(
   const tokenRows: TokenPortfolioRow[] = [];
 
   for (const [, groupRows] of groups) {
-    const first = groupRows[0]!;
+    const first = groupRows[0];
+    if (!first) continue;
     let priceResult: PriceResult;
 
     if (first.wallet_type === 'ON_CHAIN') {
@@ -350,7 +363,7 @@ export async function getTokenDetail(
       : { priceUnavailable: true };
   } else {
     const pm = await priceService.getOnChainPricesBulk([
-      { network: network as 'ETH' | 'BSC', address: contractAddress },
+      { network: network, address: contractAddress },
     ]);
     const key = `onchain:${network.toLowerCase()}:${contractAddress.toLowerCase()}`;
     priceResult = pm.get(key) ?? { priceUnavailable: true };
@@ -474,4 +487,139 @@ export async function getPositionHistory(
     closedAt: r.closed_at instanceof Date ? r.closed_at.toISOString() : String(r.closed_at),
     realizedPnlUsd: r.realized_pnl_usd,
   }));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// getClosedPositions — US-017
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface ClosedPositionRow {
+  position_id: string;
+  wallet_id: string;
+  cycle_number: number;
+  cost_basis: string;
+  realized_pnl_usd: string;
+  opened_at: Date;
+  closed_at: Date;
+  token_id: string;
+  symbol: string;
+  network: string;
+  contract_address: string | null;
+  wallet_label: string | null;
+}
+
+export interface ClosedPositionsFilters {
+  walletId?: string;
+  network?: string;
+  from?: string;
+  to?: string;
+}
+
+export async function getClosedPositions(
+  pool: Pool,
+  filters?: ClosedPositionsFilters,
+): Promise<ClosedPositionsResponse> {
+  const params: unknown[] = [];
+  const clauses: string[] = ["p.status = 'CLOSED'"];
+
+  if (filters?.walletId) {
+    params.push(filters.walletId);
+    clauses.push(`p.wallet_id = $${String(params.length)}`);
+  }
+  if (filters?.network) {
+    params.push(filters.network);
+    clauses.push(`t.network = $${String(params.length)}`);
+  }
+  if (filters?.from) {
+    params.push(filters.from);
+    clauses.push(`p.closed_at >= $${String(params.length)}::date`);
+  }
+  if (filters?.to) {
+    params.push(filters.to);
+    clauses.push(`p.closed_at < ($${String(params.length)}::date + interval '1 day')`);
+  }
+
+  const result = await pool.query<ClosedPositionRow>(
+    `SELECT
+       p.id               AS position_id,
+       p.wallet_id        AS wallet_id,
+       p.cycle_number     AS cycle_number,
+       p.cost_basis       AS cost_basis,
+       p.realized_pnl_usd AS realized_pnl_usd,
+       p.opened_at        AS opened_at,
+       p.closed_at        AS closed_at,
+       t.id               AS token_id,
+       t.symbol           AS symbol,
+       t.network          AS network,
+       t.contract_address AS contract_address,
+       w.label            AS wallet_label
+     FROM positions p
+     JOIN tokens  t ON t.id = p.token_id
+     JOIN wallets w ON w.id = p.wallet_id
+     WHERE ${clauses.join(' AND ')}
+     ORDER BY t.symbol ASC, t.network ASC, p.closed_at DESC`,
+    params,
+  );
+
+  // Group by token_id
+  const tokenGroups = new Map<string, ClosedPositionRow[]>();
+  for (const row of result.rows) {
+    const existing = tokenGroups.get(row.token_id);
+    if (existing) {
+      existing.push(row);
+    } else {
+      tokenGroups.set(row.token_id, [row]);
+    }
+  }
+
+  let grandTotalPnl = ZERO;
+  let grandTotalCycles = 0;
+  const byToken: ClosedTokenGroup[] = [];
+
+  for (const [tokenId, rows] of tokenGroups) {
+    const first = rows[0]!;
+    let tokenPnl = ZERO;
+    const cycles: ClosedCycle[] = [];
+
+    for (const row of rows) {
+      const costBasis = toDecimal(row.cost_basis);
+      const realizedPnl = toDecimal(row.realized_pnl_usd);
+      const totalProceeds = costBasis.plus(realizedPnl);
+      const pnlPct = costBasis.isZero()
+        ? null
+        : roundToStorage(realizedPnl.div(costBasis).times(100));
+
+      tokenPnl = tokenPnl.plus(realizedPnl);
+      cycles.push({
+        cycleNumber: row.cycle_number,
+        walletId: row.wallet_id,
+        walletLabel: row.wallet_label,
+        openedAt: row.opened_at instanceof Date ? row.opened_at.toISOString() : String(row.opened_at),
+        closedAt: row.closed_at instanceof Date ? row.closed_at.toISOString() : String(row.closed_at),
+        totalCostUsd: roundToStorage(costBasis),
+        totalProceedsUsd: roundToStorage(totalProceeds),
+        realizedPnlUsd: row.realized_pnl_usd,
+        realizedPnlPct: pnlPct,
+      });
+    }
+
+    grandTotalPnl = grandTotalPnl.plus(tokenPnl);
+    grandTotalCycles += cycles.length;
+
+    byToken.push({
+      tokenId,
+      symbol: first.symbol,
+      network: first.network as TokenNetwork,
+      contractAddress: first.contract_address,
+      totalRealizedPnlUsd: roundToStorage(tokenPnl),
+      cycleCount: cycles.length,
+      cycles,
+    });
+  }
+
+  return {
+    totalRealizedPnlUsd: roundToStorage(grandTotalPnl),
+    totalClosedCycles: grandTotalCycles,
+    byToken,
+  };
 }

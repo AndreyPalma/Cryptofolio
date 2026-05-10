@@ -39,7 +39,7 @@ export function InheritWacSuggestion({
       </p>
       <button
         type="button"
-        onClick={() => onUse(candidate.wac)}
+        onClick={() => { onUse(candidate.wac); }}
         className="mt-2 rounded-md bg-indigo-600 px-3 py-1 text-xs font-semibold text-white hover:bg-indigo-500"
       >
         Use this

@@ -38,6 +38,8 @@ function makeMockBinanceClient(): BinanceApiClient {
     getConvertHistory: vi.fn().mockResolvedValue([]),
     getWithdrawHistory: vi.fn().mockResolvedValue([]),
     getDepositHistory: vi.fn().mockResolvedValue([]),
+    getFiatOrders: vi.fn().mockResolvedValue([]),
+    getFiatPayments: vi.fn().mockResolvedValue([]),
   };
 }
 
@@ -63,6 +65,8 @@ function makeMockPriceService(cexPrice?: number) {
       cexPrice !== undefined ? { priceUsd: String(cexPrice) } : { priceUsd: '0' }
     ),
     getOnChainPrice: vi.fn(),
+    getOnChainPricesBulk: vi.fn().mockResolvedValue(new Map()),
+    getFiatToUsdAt: vi.fn().mockResolvedValue('1'),
   };
 }
 
