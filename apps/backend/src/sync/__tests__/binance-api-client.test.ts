@@ -73,8 +73,9 @@ describe('BinanceApiClient', () => {
       const client = createBinanceApiClient({ apiKey: 'key', secretKey: 'secret', log: mockLog });
       const trades = await client.getMyTrades('ETHUSDT', 1699000000000, 1700000000000);
 
-      expect(trades).toHaveLength(1);
-      expect(trades[0]).toMatchObject({
+      expect(trades).not.toBeNull();
+      expect(trades!).toHaveLength(1);
+      expect(trades![0]).toMatchObject({
         symbol: 'ETHUSDT',
         id: 123456,
         orderId: 789,
@@ -86,8 +87,8 @@ describe('BinanceApiClient', () => {
         commissionAsset: 'BNB',
         commission: '0.001',
       });
-      expect(typeof trades[0]!.isBuyer).toBe('boolean');
-      expect(typeof trades[0]!.time).toBe('number');
+      expect(typeof trades![0]!.isBuyer).toBe('boolean');
+      expect(typeof trades![0]!.time).toBe('number');
     });
 
     it('T06b — commissionAsset and commission are null when absent', async () => {
@@ -112,8 +113,9 @@ describe('BinanceApiClient', () => {
       const client = createBinanceApiClient({ apiKey: 'key', secretKey: 'secret', log: mockLog });
       const trades = await client.getMyTrades('BTCUSDT', 0, Date.now());
 
-      expect(trades[0]!.commissionAsset).toBeNull();
-      expect(trades[0]!.commission).toBeNull();
+      expect(trades).not.toBeNull();
+      expect(trades![0]!.commissionAsset).toBeNull();
+      expect(trades![0]!.commission).toBeNull();
     });
   });
 
@@ -161,6 +163,62 @@ describe('BinanceApiClient', () => {
       // timestamp and recvWindow must be present
       expect(url.searchParams.has('timestamp')).toBe(true);
       expect(url.searchParams.get('recvWindow')).toBe('60000');
+    });
+  });
+
+  // ─── T10: getValidTradingSymbols ─────────────────────────────────────────
+
+  describe('getValidTradingSymbols', () => {
+    it('T10a — returns a Set containing only TRADING symbols', async () => {
+      vi.spyOn(global, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          symbols: [
+            { symbol: 'ETHUSDT', status: 'TRADING' },
+            { symbol: 'BTCUSDT', status: 'TRADING' },
+            { symbol: 'QNTETH',  status: 'BREAK' },
+            { symbol: 'XYZBNB',  status: 'HALT' },
+          ],
+        }),
+      } as unknown as Response);
+
+      const client = createBinanceApiClient({ apiKey: 'key', secretKey: 'secret', log: mockLog });
+      const symbols = await client.getValidTradingSymbols();
+
+      expect(symbols.has('ETHUSDT')).toBe(true);
+      expect(symbols.has('BTCUSDT')).toBe(true);
+      expect(symbols.has('QNTETH')).toBe(false);
+      expect(symbols.has('XYZBNB')).toBe(false);
+    });
+
+    it('T10b — throws ExternalApiError when exchange-info responds with non-2xx', async () => {
+      vi.spyOn(global, 'fetch').mockResolvedValue({
+        ok: false,
+        status: 503,
+        json: async () => ({}),
+      } as unknown as Response);
+
+      const client = createBinanceApiClient({ apiKey: 'key', secretKey: 'secret', log: mockLog });
+      await expect(client.getValidTradingSymbols()).rejects.toBeInstanceOf(ExternalApiError);
+    });
+
+    it('T10c — does not use the signed helper (no API key in request headers checked)', async () => {
+      let capturedInit: RequestInit | undefined;
+      vi.spyOn(global, 'fetch').mockImplementation(async (_url, init) => {
+        capturedInit = init;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ symbols: [] }),
+        } as unknown as Response;
+      });
+
+      const client = createBinanceApiClient({ apiKey: 'my-api-key', secretKey: 'secret', log: mockLog });
+      await client.getValidTradingSymbols();
+
+      // Public endpoint — must NOT send the API key header
+      expect((capturedInit?.headers as Record<string, string> | undefined)?.['X-MBX-APIKEY']).toBeUndefined();
     });
   });
 
@@ -254,6 +312,32 @@ describe('BinanceApiClient', () => {
 
       const client = createBinanceApiClient({ apiKey: 'key', secretKey: 'secret', log: mockLog });
       await expect(client.getMyTrades('ETHUSDT', 0, 1)).rejects.toBeInstanceOf(ExternalApiError);
+    });
+
+    it('T09c — HTTP 400 with code -1121 (invalid symbol) → returns null instead of throwing', async () => {
+      vi.spyOn(global, 'fetch').mockResolvedValue({
+        ok: false,
+        status: 400,
+        json: async () => ({ code: -1121, msg: 'Invalid symbol.' }),
+      } as unknown as Response);
+
+      const client = createBinanceApiClient({ apiKey: 'key', secretKey: 'secret', log: mockLog });
+      const trades = await client.getMyTrades('XYZABC', 0, 1);
+
+      expect(trades).toBeNull();
+    });
+
+    it('T09d — HTTP 400 with code -1121 does not emit a warn log', async () => {
+      vi.spyOn(global, 'fetch').mockResolvedValue({
+        ok: false,
+        status: 400,
+        json: async () => ({ code: -1121, msg: 'Invalid symbol.' }),
+      } as unknown as Response);
+
+      const client = createBinanceApiClient({ apiKey: 'key', secretKey: 'secret', log: mockLog });
+      await client.getMyTrades('XYZABC', 0, 1);
+
+      expect(mockLog.warn).not.toHaveBeenCalled();
     });
   });
 });

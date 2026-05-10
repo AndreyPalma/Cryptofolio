@@ -56,7 +56,11 @@ export type BinanceDeposit = {
 export interface BinanceApiClient {
   assertConfigured(): void;
   getAccountAssets(): Promise<Array<{ asset: string; free: string; locked: string }>>;
-  getMyTrades(symbol: string, startTime: number, endTime: number): Promise<BinanceTrade[]>;
+  /** Returns the set of all symbol names currently in TRADING status. Public endpoint, no auth required.
+   *  Call once per sync run to pre-filter candidate pairs before querying myTrades. */
+  getValidTradingSymbols(): Promise<Set<string>>;
+  /** Returns null when the symbol doesn't exist on Binance (-1121), so callers can skip it entirely. */
+  getMyTrades(symbol: string, startTime: number, endTime: number): Promise<BinanceTrade[] | null>;
   getConvertHistory(startTime: number, endTime: number): Promise<BinanceConvert[]>;
   getWithdrawHistory(startTime: number, endTime: number): Promise<BinanceWithdrawal[]>;
   getDepositHistory(startTime: number, endTime: number): Promise<BinanceDeposit[]>;
@@ -95,7 +99,7 @@ export function createBinanceApiClient(opts: {
   const { apiKey, secretKey, log } = opts;
 
   /** Builds a signed request and returns parsed JSON. Never logs secretKey or apiKey values. */
-  async function signed<T>(endpoint: string, params: Record<string, string | number> = {}): Promise<T> {
+  async function signed<T>(endpoint: string, params: Record<string, string | number> = {}, silentCodes: number[] = []): Promise<T> {
     const qs = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) {
       qs.set(k, String(v));
@@ -140,10 +144,14 @@ export function createBinanceApiClient(opts: {
         );
       }
 
-      log.warn(
-        { endpoint, status: res.status, binanceCode: body.code, params: scrubParams(qs) },
-        '[BinanceApiClient] non-2xx response',
-      );
+      if (typeof body.code === 'number' && silentCodes.includes(body.code)) {
+        log.debug({ endpoint, binanceCode: body.code }, '[BinanceApiClient] expected non-2xx — skipping');
+      } else {
+        log.warn(
+          { endpoint, status: res.status, binanceCode: body.code, params: scrubParams(qs) },
+          '[BinanceApiClient] non-2xx response',
+        );
+      }
       throw new ExternalApiError('binance', { status: res.status, binanceCode: body.code });
     }
 
@@ -181,8 +189,27 @@ export function createBinanceApiClient(opts: {
       );
     },
 
-    async getMyTrades(symbol: string, startTime: number, endTime: number): Promise<BinanceTrade[]> {
-      const raw = await signed<Array<{
+    async getValidTradingSymbols(): Promise<Set<string>> {
+      // Public endpoint — no signature required. Returns all symbols with status=TRADING.
+      let res: Response;
+      try {
+        res = await fetch(`${BINANCE_BASE}/api/v3/exchangeInfo?symbolStatus=TRADING`);
+      } catch (err) {
+        throw new ExternalApiError('binance', { message: String(err) });
+      }
+      if (!res.ok) {
+        throw new ExternalApiError('binance', { status: res.status });
+      }
+      const data = await res.json() as { symbols: Array<{ symbol: string; status: string }> };
+      const valid = new Set<string>();
+      for (const s of data.symbols) {
+        if (s.status === 'TRADING') valid.add(s.symbol);
+      }
+      return valid;
+    },
+
+    async getMyTrades(symbol: string, startTime: number, endTime: number): Promise<BinanceTrade[] | null> {
+      let raw: Array<{
         symbol: string;
         id: number;
         orderId: number;
@@ -193,7 +220,19 @@ export function createBinanceApiClient(opts: {
         time: number;
         commissionAsset?: string;
         commission?: string;
-      }>>('/api/v3/myTrades', { symbol, startTime, endTime });
+      }>;
+      try {
+        raw = await signed<typeof raw>('/api/v3/myTrades', { symbol, startTime, endTime }, [-1121]);
+      } catch (err) {
+        // -1121: symbol doesn't exist on Binance — return null so caller can skip all remaining windows
+        if (err instanceof ExternalApiError) {
+          const cause = err.upstreamCause as { binanceCode?: number } | null;
+          if (cause?.binanceCode === -1121) {
+            return null;
+          }
+        }
+        throw err;
+      }
 
       return raw.map((t) => ({
         symbol: t.symbol,

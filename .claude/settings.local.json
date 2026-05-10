@@ -15,7 +15,11 @@
       "Bash(Select-String -Path \"d:\\\\Progra\\\\Proyectos\\\\Cryptofolio\\\\db\\\\migrations\\\\0001_initial_schema.sql\" -Pattern \"user_id\")",
       "Bash(Select-Object -First 10)",
       "mcp__plugin_engram_engram__mem_search",
-      "mcp__plugin_engram_engram__mem_get_observation"
+      "mcp__plugin_engram_engram__mem_get_observation",
+      "Bash(npm run *)",
+      "Bash(npx vitest *)",
+      "Bash(grep -E \"\\\\.\\(ts|sql\\)$\")",
+      "Bash(npx tsc *)"
     ]
   }
 }

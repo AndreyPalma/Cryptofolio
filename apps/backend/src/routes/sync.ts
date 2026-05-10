@@ -60,6 +60,7 @@ export const syncRoutes: FastifyPluginAsync = async (fastify) => {
       const binanceService = new BinanceSyncService({
         pool,
         priceService,
+        log: fastify.log,
         binanceClient: createBinanceApiClient({
           apiKey: process.env.BINANCE_API_KEY ?? '',
           secretKey: process.env.BINANCE_SECRET_KEY ?? '',

@@ -5,6 +5,7 @@
 import crypto from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import { Decimal } from 'decimal.js';
+import type { FastifyBaseLogger } from 'fastify';
 import type { PriceService } from './price.js';
 import type { PriceResult } from '../types/portfolio.js';
 import type { BinanceApiClient, BinanceTrade, BinanceDeposit, BinanceWithdrawal } from '../sync/clients/binance-api.js';
@@ -25,6 +26,7 @@ export type BinanceSyncDeps = {
   pool: Pool;
   priceService: PriceService;
   binanceClient: BinanceApiClient;
+  log: FastifyBaseLogger;
 };
 
 type PersistBinanceTxOpts = {
@@ -52,6 +54,12 @@ type PersistBinanceTxOpts = {
 function extractPrice(result: PriceResult): string {
   return 'priceUsd' in result ? result.priceUsd : '0';
 }
+
+// Sync lookback start — all first-time cursors begin here instead of a rolling window
+const SYNC_START_MS = new Date('2025-12-01T00:00:00.000Z').getTime();
+
+// Quote assets to probe per base asset in syncTrades
+const QUOTE_ASSETS = ['USDT', 'BTC', 'ETH', 'BNB'] as const;
 
 const STABLE_ASSETS = new Set(['USDT', 'USDC', 'BUSD', 'USD']);
 
@@ -101,22 +109,41 @@ export class BinanceSyncService {
     // 2. Validate API keys before acquiring DB connection
     this.deps.binanceClient.assertConfigured();
 
+    const log = this.deps.log;
+    log.info({ walletId }, '[BinanceSync] starting sync');
+    const syncStart = Date.now();
+
     // 3. Acquire pool client and run all sub-methods
     let tokensCreated = 0;
     const pgc = await this.deps.pool.connect();
     try {
-      const tradesResult = await this.syncTrades(pgc, walletId, (n) => { tokensCreated += n; });
+      // converts/deposits/withdrawals run first: they populate the tokens table,
+      // which syncTrades then uses to discover zero-balance assets to query.
+      log.info({ walletId }, '[BinanceSync] step 1/4 — converts');
       const convertsResult = await this.syncConvert(pgc, walletId, (n) => { tokensCreated += n; });
-      const withdrawalsResult = await this.syncWithdrawals(pgc, walletId, (n) => { tokensCreated += n; });
-      const depositsResult = await this.syncDeposits(pgc, walletId, (n) => { tokensCreated += n; });
+      log.info({ walletId, ...convertsResult }, '[BinanceSync] converts done');
 
-      // Best-effort: update last_synced_at. If this fails, sync data is already persisted — do not propagate.
+      log.info({ walletId }, '[BinanceSync] step 2/4 — deposits');
+      const depositsResult = await this.syncDeposits(pgc, walletId, (n) => { tokensCreated += n; });
+      log.info({ walletId, ...depositsResult }, '[BinanceSync] deposits done');
+
+      log.info({ walletId }, '[BinanceSync] step 3/4 — withdrawals');
+      const withdrawalsResult = await this.syncWithdrawals(pgc, walletId, (n) => { tokensCreated += n; });
+      log.info({ walletId, ...withdrawalsResult }, '[BinanceSync] withdrawals done');
+
+      log.info({ walletId }, '[BinanceSync] step 4/4 — trades');
+      const tradesResult = await this.syncTrades(pgc, walletId, (n) => { tokensCreated += n; });
+      log.info({ walletId, ...tradesResult }, '[BinanceSync] trades done');
+
+      // Best-effort: update last_synced_at.
       try {
         await pgc.query('UPDATE wallets SET last_synced_at = now() WHERE id = $1', [walletId]);
       } catch (err) {
-        // eslint-disable-next-line no-console -- logger not injected at this level; best-effort only
-        console.error('[BinanceSyncService] Failed to update last_synced_at after sync — best-effort', err);
+        log.error({ walletId, err }, '[BinanceSync] failed to update last_synced_at — best-effort');
       }
+
+      const durationMs = Date.now() - syncStart;
+      log.info({ walletId, durationMs, tokensCreated }, '[BinanceSync] sync complete');
 
       return {
         trades: tradesResult,
@@ -408,6 +435,24 @@ export class BinanceSyncService {
     return { priceUsd: extractPrice(priceResult), costSource: 'MARKET' };
   }
 
+  // ─── Private: discoverAssets ─────────────────────────────────────────────
+
+  private async discoverAssets(pgc: PoolClient): Promise<string[]> {
+    const [accountAssets, dbTokens] = await Promise.all([
+      this.deps.binanceClient.getAccountAssets(),
+      pgc.query<{ symbol: string }>(`SELECT symbol FROM tokens WHERE network = 'CEX_BINANCE'`),
+    ]);
+    const assetSet = new Set<string>();
+    for (const a of accountAssets) {
+      if (!isStable(a.asset)) assetSet.add(a.asset.toUpperCase());
+    }
+    for (const row of dbTokens.rows) {
+      const sym = row.symbol.toUpperCase();
+      if (!isStable(sym)) assetSet.add(sym);
+    }
+    return Array.from(assetSet);
+  }
+
   // ─── Private: syncTrades ──────────────────────────────────────────────────
 
   private async syncTrades(
@@ -419,55 +464,85 @@ export class BinanceSyncService {
     let skipped = 0;
     let symbolsProcessed = 0;
 
-    const assets = await this.deps.binanceClient.getAccountAssets();
+    // Discover all base assets: current account balance + tokens already in DB
+    // (converts/deposits/withdrawals ran before us and populated the tokens table)
+    const [assets, validSymbols] = await Promise.all([
+      this.discoverAssets(pgc),
+      this.deps.binanceClient.getValidTradingSymbols(),
+    ]);
+
+    const log = this.deps.log;
+    const candidates = assets.flatMap((a) =>
+      QUOTE_ASSETS.filter((q) => q !== a).map((q) => `${a}${q}`),
+    );
+    const toProcess = candidates.filter((s) => validSymbols.has(s));
+    const skippedInvalid = candidates.length - toProcess.length;
+    log.info(
+      { walletId, assets: assets.length, candidates: candidates.length, toProcess: toProcess.length, skippedInvalid },
+      '[BinanceSync/trades] symbol plan',
+    );
 
     for (const asset of assets) {
-      if (isStable(asset.asset)) continue;
-      const symbol = `${asset.asset}USDT`;
-      const cursorKey = `trades:${symbol}`;
-      const now = Date.now();
-      let startTime = (await this.getCursor(pgc, walletId, cursorKey)) ?? (now - 30 * 24 * 60 * 60 * 1000);
+      for (const quote of QUOTE_ASSETS) {
+        if (asset === quote) continue;
+        const symbol = `${asset}${quote}`;
+        if (!validSymbols.has(symbol)) continue;
+        const cursorKey = `trades:${symbol}`;
+        const now = Date.now();
+        let startTime = (await this.getCursor(pgc, walletId, cursorKey)) ?? SYNC_START_MS;
+        const totalWindowsMs = now - startTime;
+        const estimatedWindows = Math.ceil(totalWindowsMs / (24 * 60 * 60 * 1000));
+        log.info({ walletId, symbol, estimatedWindows }, '[BinanceSync/trades] processing symbol');
 
-      while (startTime < now) {
-        const endTime = Math.min(startTime + 24 * 60 * 60 * 1000, now);
-        const trades = await this.deps.binanceClient.getMyTrades(symbol, startTime, endTime);
-
-        await pgc.query('BEGIN');
-        try {
-          for (const trade of trades) {
-            const tokenId = await this.ensureTokenCex(pgc, asset.asset, asset.asset, onTokenCreated);
-            const type: TransactionType = trade.isBuyer ? 'BUY' : 'SELL';
-            const priceUsd = await this.computeTradePrice(trade);
-
-            const result = await this.persistBinanceTx(pgc, {
-              walletId,
-              tokenId,
-              type,
-              cexTradeId: BigInt(trade.id),
-              txLogIndex: 0,
-              txHash: null,
-              amount: trade.qty,
-              priceUsd,
-              costSource: 'MARKET',
-              commissionAsset: trade.commissionAsset ?? null,
-              commissionAmount: trade.commission ?? null,
-              cexTimestamp: new Date(trade.time),
-            });
-
-            if (result.inserted) synced++;
-            else skipped++;
+        let windowsDone = 0;
+        while (startTime < now) {
+          const endTime = Math.min(startTime + 24 * 60 * 60 * 1000, now);
+          // Returns null if the symbol doesn't exist on Binance — defensive fallback
+          const trades = await this.deps.binanceClient.getMyTrades(symbol, startTime, endTime);
+          if (trades === null) {
+            log.warn({ walletId, symbol }, '[BinanceSync/trades] symbol rejected by exchange — skipping');
+            break;
           }
-          await pgc.query('COMMIT');
-        } catch (err) {
-          await pgc.query('ROLLBACK');
-          throw err;
+
+          await pgc.query('BEGIN');
+          try {
+            for (const trade of trades) {
+              const tokenId = await this.ensureTokenCex(pgc, asset, asset, onTokenCreated);
+              const type: TransactionType = trade.isBuyer ? 'BUY' : 'SELL';
+              const priceUsd = await this.computeTradePrice(trade);
+
+              const result = await this.persistBinanceTx(pgc, {
+                walletId,
+                tokenId,
+                type,
+                cexTradeId: BigInt(trade.id),
+                txLogIndex: 0,
+                txHash: null,
+                amount: trade.qty,
+                priceUsd,
+                costSource: 'MARKET',
+                commissionAsset: trade.commissionAsset ?? null,
+                commissionAmount: trade.commission ?? null,
+                cexTimestamp: new Date(trade.time),
+              });
+
+              if (result.inserted) synced++;
+              else skipped++;
+            }
+            await pgc.query('COMMIT');
+          } catch (err) {
+            await pgc.query('ROLLBACK');
+            throw err;
+          }
+
+          windowsDone++;
+          startTime = endTime;
         }
 
-        startTime = endTime;
+        log.info({ walletId, symbol, windowsDone, synced, skipped }, '[BinanceSync/trades] symbol done');
+        await this.setCursor(pgc, walletId, cursorKey, Date.now());
+        symbolsProcessed++;
       }
-
-      await this.setCursor(pgc, walletId, cursorKey, Date.now());
-      symbolsProcessed++;
     }
 
     return { synced, skipped, symbolsProcessed };
@@ -484,7 +559,7 @@ export class BinanceSyncService {
     let skipped = 0;
 
     const now = Date.now();
-    let startTime = (await this.getCursor(pgc, walletId, 'converts')) ?? (now - 30 * 24 * 60 * 60 * 1000);
+    let startTime = (await this.getCursor(pgc, walletId, 'converts')) ?? SYNC_START_MS;
 
     while (startTime < now) {
       const endTime = Math.min(startTime + 30 * 24 * 60 * 60 * 1000, now);
@@ -579,7 +654,7 @@ export class BinanceSyncService {
     let skipped = 0;
 
     const now = Date.now();
-    let startTime = (await this.getCursor(pgc, walletId, 'withdrawals')) ?? (now - 90 * 24 * 60 * 60 * 1000);
+    let startTime = (await this.getCursor(pgc, walletId, 'withdrawals')) ?? SYNC_START_MS;
 
     while (startTime < now) {
       const endTime = Math.min(startTime + 90 * 24 * 60 * 60 * 1000, now);
@@ -648,7 +723,7 @@ export class BinanceSyncService {
     let manual = 0;
 
     const now = Date.now();
-    let startTime = (await this.getCursor(pgc, walletId, 'deposits')) ?? (now - 90 * 24 * 60 * 60 * 1000);
+    let startTime = (await this.getCursor(pgc, walletId, 'deposits')) ?? SYNC_START_MS;
 
     while (startTime < now) {
       const endTime = Math.min(startTime + 90 * 24 * 60 * 60 * 1000, now);

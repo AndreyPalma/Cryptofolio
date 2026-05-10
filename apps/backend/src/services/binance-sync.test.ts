@@ -27,6 +27,7 @@ function makeMinimalBinanceClient(): BinanceApiClient {
   return {
     assertConfigured: vi.fn(),
     getAccountAssets: vi.fn().mockResolvedValue([]),
+    getValidTradingSymbols: vi.fn().mockResolvedValue(new Set<string>()),
     getMyTrades: vi.fn().mockResolvedValue([]),
     getConvertHistory: vi.fn().mockResolvedValue([]),
     getWithdrawHistory: vi.fn().mockResolvedValue([]),
@@ -119,7 +120,7 @@ describe('BinanceSyncService.sync() — last_synced_at fix (A1)', () => {
     const binanceClient = makeMinimalBinanceClient();
     const priceService = makeMinimalPriceService();
 
-    const service = new BinanceSyncService({ pool, priceService, binanceClient });
+    const service = new BinanceSyncService({ pool, priceService, binanceClient, log: mockLog });
     const result = await service.sync(CEX_WALLET.id, 'user-uuid');
 
     // sync() must return a BinanceSyncResult without throwing
@@ -142,7 +143,7 @@ describe('BinanceSyncService.sync() — last_synced_at fix (A1)', () => {
     const binanceClient = makeMinimalBinanceClient();
     const priceService = makeMinimalPriceService();
 
-    const service = new BinanceSyncService({ pool, priceService, binanceClient });
+    const service = new BinanceSyncService({ pool, priceService, binanceClient, log: mockLog });
 
     // Must NOT throw even though the UPDATE fails
     await expect(service.sync(CEX_WALLET.id, 'user-uuid')).resolves.toBeDefined();
@@ -153,7 +154,7 @@ describe('BinanceSyncService.sync() — last_synced_at fix (A1)', () => {
     const binanceClient = makeMinimalBinanceClient();
     const priceService = makeMinimalPriceService();
 
-    const service = new BinanceSyncService({ pool, priceService, binanceClient });
+    const service = new BinanceSyncService({ pool, priceService, binanceClient, log: mockLog });
     const result = await service.sync(CEX_WALLET.id, 'user-uuid');
 
     expect(result.trades).toEqual({ synced: 0, skipped: 0, symbolsProcessed: 0 });

@@ -33,6 +33,7 @@ function makeMockBinanceClient(): BinanceApiClient {
   return {
     assertConfigured: vi.fn(),
     getAccountAssets: vi.fn().mockResolvedValue([]),
+    getValidTradingSymbols: vi.fn().mockResolvedValue(new Set<string>()),
     getMyTrades: vi.fn().mockResolvedValue([]),
     getConvertHistory: vi.fn().mockResolvedValue([]),
     getWithdrawHistory: vi.fn().mockResolvedValue([]),
@@ -70,6 +71,7 @@ function makeDeps(overrides: Partial<BinanceSyncDeps> = {}): BinanceSyncDeps {
     pool: {} as BinanceSyncDeps['pool'],
     priceService: makeMockPriceService() as unknown as BinanceSyncDeps['priceService'],
     binanceClient: makeMockBinanceClient(),
+    log: makeMockLog(),
     ...overrides,
   };
 }

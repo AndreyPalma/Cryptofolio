@@ -107,10 +107,19 @@ async function createTransferOutTx(
 
 // ─── Mock factories ────────────────────────────────────────────────────────────
 
+import type { FastifyBaseLogger } from 'fastify';
+
+const mockLog = {
+  info: vi.fn(), warn: vi.fn(), error: vi.fn(),
+  debug: vi.fn(), trace: vi.fn(), fatal: vi.fn(),
+  child: vi.fn().mockReturnThis(), level: 'info', silent: vi.fn(),
+} as unknown as FastifyBaseLogger;
+
 function makeMockBinanceClient(overrides: Partial<BinanceApiClient> = {}): BinanceApiClient {
   return {
     assertConfigured: vi.fn(),
     getAccountAssets: vi.fn().mockResolvedValue([]),
+    getValidTradingSymbols: vi.fn().mockResolvedValue(new Set<string>()),
     getMyTrades: vi.fn().mockResolvedValue([]),
     getConvertHistory: vi.fn().mockResolvedValue([]),
     getWithdrawHistory: vi.fn().mockResolvedValue([]),
@@ -145,7 +154,7 @@ describe.skipIf(!hasDb)('BinanceSyncService (integration)', () => {
     });
 
     const svc = new BinanceSyncService({
-      pool: pool!,
+      pool: pool!, log: mockLog,
       priceService: makeMockPriceService() as unknown as BinanceSyncDeps['priceService'],
       binanceClient,
     });
@@ -182,7 +191,7 @@ describe.skipIf(!hasDb)('BinanceSyncService (integration)', () => {
     });
 
     const svc = new BinanceSyncService({
-      pool: pool!,
+      pool: pool!, log: mockLog,
       priceService: makeMockPriceService() as unknown as BinanceSyncDeps['priceService'],
       binanceClient,
     });
@@ -240,7 +249,7 @@ describe.skipIf(!hasDb)('BinanceSyncService (integration)', () => {
     });
 
     const svc = new BinanceSyncService({
-      pool: pool!,
+      pool: pool!, log: mockLog,
       priceService: makeMockPriceService() as unknown as BinanceSyncDeps['priceService'],
       binanceClient,
     });
@@ -290,7 +299,7 @@ describe.skipIf(!hasDb)('BinanceSyncService (integration)', () => {
     });
 
     const svc = new BinanceSyncService({
-      pool: pool!,
+      pool: pool!, log: mockLog,
       priceService: makeMockPriceService(3000) as unknown as BinanceSyncDeps['priceService'],
       binanceClient,
     });
