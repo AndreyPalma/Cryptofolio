@@ -1,5 +1,8 @@
 import { hashPassword } from "./password.js";
 
+/** Fixed UUID for the single admin user — stable across restarts. */
+export const ADMIN_USER_ID = '00000000-0000-0000-0000-000000000001';
+
 /**
  * Module-scoped singleton — the bcrypt hash of APP_PASSWORD.
  * Lives only in process memory; recalculated on each startup.

@@ -6,7 +6,7 @@ import {
 } from "fastify-type-provider-zod";
 import { ZodError } from "zod";
 import { healthPlugin } from "./plugins/health.js";
-import { bootstrapAuth } from "./services/auth-bootstrap.js";
+import { bootstrapAuth, ADMIN_USER_ID } from "./services/auth-bootstrap.js";
 import authPlugin from "./plugins/auth.js";
 
 export interface BuildServerOptions {
@@ -21,7 +21,7 @@ export async function buildServer(
 ): Promise<FastifyInstance> {
   const { jwtSecret = process.env.JWT_SECRET ?? "", enableAuth = true } = opts;
 
-  const fastify = Fastify({ logger: true }).withTypeProvider<ZodTypeProvider>();
+  const fastify = Fastify({ logger: { level: 'warn' } }).withTypeProvider<ZodTypeProvider>();
 
   fastify.setValidatorCompiler(validatorCompiler);
   fastify.setSerializerCompiler(serializerCompiler);
@@ -41,6 +41,7 @@ export async function buildServer(
         "statusCode" in error && typeof (error as { statusCode?: unknown }).statusCode === "number"
           ? (error as { statusCode: number }).statusCode
           : 500;
+      if (statusCode === 500) _request.log.error({ err: error }, 'unhandled error');
       return reply.status(statusCode).send({
         statusCode,
         error: error.name,
@@ -103,6 +104,14 @@ if (isMain) {
 
     // Bootstrap bcrypt hash BEFORE creating the server (design §2.2, step 1)
     await bootstrapAuth();
+
+    // Ensure the single admin user row exists (FK required by wallets, transactions, etc.)
+    const { pool } = await import('./db/pool.js');
+    await pool.query(
+      `INSERT INTO users (id, password_hash) VALUES ($1, $2)
+       ON CONFLICT (id) DO NOTHING`,
+      [ADMIN_USER_ID, '__bootstrapped__'],
+    );
 
     const server = await buildServer({ jwtSecret: env.JWT_SECRET });
     await server.listen({ port: env.PORT, host: "0.0.0.0" });

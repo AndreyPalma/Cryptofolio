@@ -94,7 +94,7 @@ async function fetchDefiLlamaBulk(
   try {
     const res = await fetch(url, { signal: ctrl.signal });
     if (!res.ok) {
-      log.warn({ url, status: res.status, source: 'DEFILLAMA' }, 'price fetch non-200');
+      log.debug({ url, status: res.status, source: 'DEFILLAMA' }, 'price fetch non-200');
       for (const r of requests) {
         const key = onChainKey(r.network, r.address);
         markUnavailable(key, TTL_DEFILLAMA_MS);
@@ -106,7 +106,7 @@ async function fetchDefiLlamaBulk(
     const json: unknown = await res.json();
     const parsed = DefiLlamaResponseSchema.safeParse(json);
     if (!parsed.success) {
-      log.warn({ url, source: 'DEFILLAMA', issues: parsed.error.issues }, 'price schema mismatch');
+      log.debug({ url, source: 'DEFILLAMA', issues: parsed.error.issues }, 'price schema mismatch');
       for (const r of requests) {
         const key = onChainKey(r.network, r.address);
         markUnavailable(key, TTL_DEFILLAMA_MS);
@@ -130,7 +130,7 @@ async function fetchDefiLlamaBulk(
     }
     return result;
   } catch (err) {
-    log.warn({ url, source: 'DEFILLAMA', err: String(err) }, 'price fetch threw');
+    log.debug({ url, source: 'DEFILLAMA', err: String(err) }, 'price fetch threw');
     for (const r of requests) {
       const key = onChainKey(r.network, r.address);
       markUnavailable(key, TTL_DEFILLAMA_MS);
@@ -154,21 +154,21 @@ async function fetchBinanceTicker(
   try {
     const res = await fetch(url, { signal: ctrl.signal });
     if (!res.ok) {
-      log.warn({ url, status: res.status, source: 'BINANCE' }, 'price fetch non-200');
+      log.debug({ url, status: res.status, source: 'BINANCE' }, 'price fetch non-200');
       markUnavailable(key, TTL_BINANCE_MS);
       return { priceUnavailable: true };
     }
     const json: unknown = await res.json();
     const parsed = BinanceTickerSchema.safeParse(json);
     if (!parsed.success) {
-      log.warn({ url, source: 'BINANCE', issues: parsed.error.issues }, 'price schema mismatch');
+      log.debug({ url, source: 'BINANCE', issues: parsed.error.issues }, 'price schema mismatch');
       markUnavailable(key, TTL_BINANCE_MS);
       return { priceUnavailable: true };
     }
     markAvailable(key, parsed.data.price, TTL_BINANCE_MS);
     return { priceUsd: parsed.data.price };
   } catch (err) {
-    log.warn({ url, source: 'BINANCE', err: String(err) }, 'price fetch threw');
+    log.debug({ url, source: 'BINANCE', err: String(err) }, 'price fetch threw');
     markUnavailable(key, TTL_BINANCE_MS);
     return { priceUnavailable: true };
   } finally {

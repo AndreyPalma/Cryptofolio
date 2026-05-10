@@ -1,15 +1,26 @@
+import { useState } from "react";
 import { useSettingsWallets } from "../../hooks/settings/useSettingsWallets";
 import { useSyncWallet } from "../../hooks/settings/useSyncWallet";
 import { usePendingPriceTransfers } from "../../hooks/settings/usePendingPriceTransfers";
 import { useRelativeTime } from "../../hooks/useRelativeTime";
+import { useWalletMutations } from "../../hooks/settings/useWalletMutations";
 import { SyncResultInline } from "./SyncResultInline";
 import type { SettingsWallet } from "../../types/settings";
 
-function CexWalletRow({ wallet, sync, syncState, onAfterSync }: {
+function CexWalletRow({
+  wallet,
+  sync,
+  syncState,
+  onAfterSync,
+  onDelete,
+  isDeleting,
+}: {
   wallet: SettingsWallet;
   sync: (id: string, kind: "cex") => Promise<void>;
   syncState: { status: string; result?: unknown; message?: string };
   onAfterSync: () => void;
+  onDelete: (id: string) => Promise<void>;
+  isDeleting: boolean;
 }) {
   const { label } = useRelativeTime(wallet.lastSyncedAt);
   const isSyncing = syncState.status === "syncing";
@@ -43,6 +54,14 @@ function CexWalletRow({ wallet, sync, syncState, onAfterSync }: {
         >
           {isSyncing ? "Syncing..." : "Sync"}
         </button>
+        <button
+          type="button"
+          disabled={isDeleting || isSyncing}
+          onClick={() => void onDelete(wallet.id)}
+          className="rounded bg-red-800 px-3 py-1 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {isDeleting ? "Deleting..." : "Delete"}
+        </button>
       </div>
 
       {syncState.status === "success" && (
@@ -55,10 +74,72 @@ function CexWalletRow({ wallet, sync, syncState, onAfterSync }: {
   );
 }
 
+function AddBinanceForm({ onSuccess, onCancel }: { onSuccess: () => void; onCancel: () => void }) {
+  const { addWallet, adding, addError, clearAddError } = useWalletMutations();
+  const [label, setLabel] = useState("");
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    clearAddError();
+    try {
+      await addWallet({
+        wallet_type: "CEX",
+        network: "CEX_BINANCE",
+        ...(label.trim() ? { label: label.trim() } : {}),
+      });
+      onSuccess();
+    } catch {
+      // error shown via addError
+    }
+  };
+
+  return (
+    <form onSubmit={(e) => void handleSubmit(e)} className="rounded-lg bg-gray-800 p-4 space-y-3">
+      <div>
+        <label className="block text-xs text-gray-400 mb-1">Label (optional)</label>
+        <input
+          type="text"
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          placeholder="My Binance"
+          className="w-full rounded bg-gray-700 px-3 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+        />
+      </div>
+      <p className="text-xs text-gray-500">
+        Binance credentials are read from the API keys configured in .env. Only one Binance account is supported.
+      </p>
+      {addError && <p className="text-xs text-red-400">{addError}</p>}
+      <div className="flex gap-2 justify-end">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded bg-gray-700 px-3 py-1.5 text-xs text-gray-300 hover:bg-gray-600"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          disabled={adding}
+          className="rounded bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {adding ? "Adding..." : "Add Binance Account"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
 export function ExchangeAccountsSection() {
   const { data, loading, error, refetch: walletsRefetch } = useSettingsWallets();
   const { states, sync } = useSyncWallet();
   const { refetch: pendingRefetch } = usePendingPriceTransfers();
+  const { deleteWallet, deleting } = useWalletMutations();
+  const [showForm, setShowForm] = useState(false);
+
+  const handleDelete = async (id: string) => {
+    await deleteWallet(id);
+    void walletsRefetch();
+  };
 
   if (loading) {
     return (
@@ -86,14 +167,34 @@ export function ExchangeAccountsSection() {
   }
 
   const cexWallets = (data ?? []).filter((w) => w.walletType === "CEX");
+  const hasCex = cexWallets.length > 0;
 
   return (
     <div className="rounded-xl bg-gray-900 p-6">
-      <h2 className="mb-4 text-lg font-semibold text-white">Exchange Accounts</h2>
-      {cexWallets.length === 0 ? (
-        <div>
-          <p className="text-sm text-gray-400">No Binance account configured. Add one in the wallets section.</p>
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-white">Exchange Accounts</h2>
+        {!showForm && !hasCex && (
+          <button
+            type="button"
+            onClick={() => setShowForm(true)}
+            className="rounded bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-500"
+          >
+            + Add Binance
+          </button>
+        )}
+      </div>
+
+      {showForm && (
+        <div className="mb-3">
+          <AddBinanceForm
+            onSuccess={() => { setShowForm(false); void walletsRefetch(); }}
+            onCancel={() => setShowForm(false)}
+          />
         </div>
+      )}
+
+      {cexWallets.length === 0 && !showForm ? (
+        <p className="text-sm text-gray-400">No Binance account configured.</p>
       ) : (
         <div className="space-y-3">
           {cexWallets.map((wallet) => (
@@ -103,6 +204,8 @@ export function ExchangeAccountsSection() {
               sync={sync}
               syncState={states[wallet.id] ?? { status: "idle" }}
               onAfterSync={() => { void walletsRefetch(); void pendingRefetch(); }}
+              onDelete={handleDelete}
+              isDeleting={deleting === wallet.id}
             />
           ))}
         </div>

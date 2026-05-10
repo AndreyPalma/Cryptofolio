@@ -3,6 +3,7 @@ import { useSettingsWallets } from "../../hooks/settings/useSettingsWallets";
 import { useSyncWallet } from "../../hooks/settings/useSyncWallet";
 import { usePendingPriceTransfers } from "../../hooks/settings/usePendingPriceTransfers";
 import { useRelativeTime } from "../../hooks/useRelativeTime";
+import { useWalletMutations } from "../../hooks/settings/useWalletMutations";
 import { SyncResultInline } from "./SyncResultInline";
 import type { SettingsWallet } from "../../types/settings";
 
@@ -39,7 +40,17 @@ function LastSyncedCell({ date }: { date: Date | null }) {
   return <span className="text-xs text-gray-400">{label}</span>;
 }
 
-function WalletRow({ wallet, onSyncComplete }: { wallet: SettingsWallet; onSyncComplete: () => void }) {
+function WalletRow({
+  wallet,
+  onSyncComplete,
+  onDelete,
+  isDeleting,
+}: {
+  wallet: SettingsWallet;
+  onSyncComplete: () => void;
+  onDelete: (id: string) => Promise<void>;
+  isDeleting: boolean;
+}) {
   const { states, sync } = useSyncWallet();
   const { refetch: pendingRefetch } = usePendingPriceTransfers();
   const state = states[wallet.id] ?? { status: "idle" };
@@ -79,6 +90,14 @@ function WalletRow({ wallet, onSyncComplete }: { wallet: SettingsWallet; onSyncC
         >
           {isSyncing ? "Syncing..." : "Sync"}
         </button>
+        <button
+          type="button"
+          disabled={isDeleting || isSyncing}
+          onClick={() => void onDelete(wallet.id)}
+          className="rounded bg-red-800 px-3 py-1 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {isDeleting ? "Deleting..." : "Delete"}
+        </button>
       </div>
 
       {state.status === "success" && (
@@ -91,8 +110,94 @@ function WalletRow({ wallet, onSyncComplete }: { wallet: SettingsWallet; onSyncC
   );
 }
 
+function AddWalletForm({ onSuccess, onCancel }: { onSuccess: () => void; onCancel: () => void }) {
+  const { addWallet, adding, addError, clearAddError } = useWalletMutations();
+  const [label, setLabel] = useState("");
+  const [address, setAddress] = useState("");
+  const [network, setNetwork] = useState<"ETH" | "BSC">("ETH");
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    clearAddError();
+    try {
+      await addWallet({
+        wallet_type: "ON_CHAIN",
+        address: address.trim(),
+        network,
+        ...(label.trim() ? { label: label.trim() } : {}),
+      });
+      onSuccess();
+    } catch {
+      // error shown via addError
+    }
+  };
+
+  return (
+    <form onSubmit={(e) => void handleSubmit(e)} className="rounded-lg bg-gray-800 p-4 space-y-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Label (optional)</label>
+          <input
+            type="text"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="My ETH wallet"
+            className="w-full rounded bg-gray-700 px-3 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Network</label>
+          <select
+            value={network}
+            onChange={(e) => setNetwork(e.target.value as "ETH" | "BSC")}
+            className="w-full rounded bg-gray-700 px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          >
+            <option value="ETH">Ethereum (ETH)</option>
+            <option value="BSC">BNB Chain (BSC)</option>
+          </select>
+        </div>
+      </div>
+      <div>
+        <label className="block text-xs text-gray-400 mb-1">Address</label>
+        <input
+          type="text"
+          value={address}
+          onChange={(e) => setAddress(e.target.value)}
+          placeholder="0x..."
+          required
+          className="w-full rounded bg-gray-700 px-3 py-1.5 font-mono text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+        />
+      </div>
+      {addError && <p className="text-xs text-red-400">{addError}</p>}
+      <div className="flex gap-2 justify-end">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded bg-gray-700 px-3 py-1.5 text-xs text-gray-300 hover:bg-gray-600"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          disabled={adding || !address.trim()}
+          className="rounded bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {adding ? "Adding..." : "Add Wallet"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
 export function OnChainWalletsSection() {
   const { data, loading, error, refetch: walletsRefetch } = useSettingsWallets();
+  const { deleteWallet, deleting } = useWalletMutations();
+  const [showForm, setShowForm] = useState(false);
+
+  const handleDelete = async (id: string) => {
+    await deleteWallet(id);
+    void walletsRefetch();
+  };
 
   if (loading) {
     return (
@@ -123,8 +228,29 @@ export function OnChainWalletsSection() {
 
   return (
     <div className="rounded-xl bg-gray-900 p-6">
-      <h2 className="mb-4 text-lg font-semibold text-white">On-Chain Wallets</h2>
-      {onChainWallets.length === 0 ? (
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-white">On-Chain Wallets</h2>
+        {!showForm && (
+          <button
+            type="button"
+            onClick={() => setShowForm(true)}
+            className="rounded bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-500"
+          >
+            + Add Wallet
+          </button>
+        )}
+      </div>
+
+      {showForm && (
+        <div className="mb-3">
+          <AddWalletForm
+            onSuccess={() => { setShowForm(false); void walletsRefetch(); }}
+            onCancel={() => setShowForm(false)}
+          />
+        </div>
+      )}
+
+      {onChainWallets.length === 0 && !showForm ? (
         <p className="text-sm text-gray-400">No on-chain wallets registered.</p>
       ) : (
         <div className="space-y-3">
@@ -133,6 +259,8 @@ export function OnChainWalletsSection() {
               key={wallet.id}
               wallet={wallet}
               onSyncComplete={() => void walletsRefetch()}
+              onDelete={handleDelete}
+              isDeleting={deleting === wallet.id}
             />
           ))}
         </div>

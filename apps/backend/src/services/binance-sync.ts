@@ -53,7 +53,7 @@ function extractPrice(result: PriceResult): string {
   return 'priceUsd' in result ? result.priceUsd : '0';
 }
 
-const STABLE_ASSETS = new Set(['USDT', 'USDC', 'BUSD']);
+const STABLE_ASSETS = new Set(['USDT', 'USDC', 'BUSD', 'USD']);
 
 function isStable(asset: string): boolean {
   return STABLE_ASSETS.has(asset.toUpperCase());
@@ -422,6 +422,7 @@ export class BinanceSyncService {
     const assets = await this.deps.binanceClient.getAccountAssets();
 
     for (const asset of assets) {
+      if (isStable(asset.asset)) continue;
       const symbol = `${asset.asset}USDT`;
       const cursorKey = `trades:${symbol}`;
       const now = Date.now();
@@ -587,6 +588,14 @@ export class BinanceSyncService {
       await pgc.query('BEGIN');
       try {
         for (const withdrawal of withdrawals) {
+          let withdrawalIdBigInt: bigint;
+          try {
+            withdrawalIdBigInt = BigInt(withdrawal.id);
+          } catch {
+            skipped++;
+            continue;
+          }
+
           const tokenId = await this.ensureTokenCex(pgc, withdrawal.coin, withdrawal.coin, onTokenCreated);
 
           // Load current WAC from OPEN position
@@ -600,7 +609,7 @@ export class BinanceSyncService {
             walletId,
             tokenId,
             type: 'TRANSFER_OUT',
-            cexTradeId: BigInt(withdrawal.id),
+            cexTradeId: withdrawalIdBigInt,
             txLogIndex: 0,
             txHash: withdrawal.txId,   // CRITICAL: bridge column — must not be null
             amount: withdrawal.amount,

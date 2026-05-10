@@ -28,14 +28,16 @@ function parseEtherscanLikeBody(
   }
 
   if (data.status === '0') {
+    const result = String(data.result ?? '').toLowerCase();
     const msg = (data.message ?? '').toLowerCase();
-    if (msg.includes('invalid') || msg.includes('api key')) {
+    const combined = `${result} ${msg}`;
+    if (combined.includes('invalid') || combined.includes('api key')) {
       return { status: 'failed', reason: 'Invalid API key' };
     }
-    if (msg.includes('rate limit') || msg.includes('max rate')) {
+    if (combined.includes('rate limit') || combined.includes('max rate')) {
       return { status: 'failed', reason: 'Rate limit exceeded' };
     }
-    return { status: 'failed', reason: data.message ?? 'Unknown error' };
+    return { status: 'failed', reason: String(data.result || data.message) ?? 'Unknown error' };
   }
 
   return { status: 'failed', reason: `${serviceName} unreachable` };
@@ -56,7 +58,7 @@ export class CredentialTestService {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), CredentialTestService.TIMEOUT_MS);
 
-    const url = `https://api.etherscan.io/api?module=stats&action=ethsupply&apikey=${apiKey}`;
+    const url = `https://api.etherscan.io/v2/api?chainid=1&module=stats&action=ethsupply&apikey=${apiKey}`;
     const start = Date.now();
 
     try {
@@ -167,12 +169,18 @@ export class CredentialTestService {
         return { status: 'failed', reason: 'API key not configured' };
       }
       if (err instanceof ExternalApiError) {
-        const cause = err.upstreamCause as { status?: number } | null;
+        const cause = err.upstreamCause as { status?: number; binanceCode?: number } | null;
         if (cause?.status === 429) {
           return { status: 'failed', reason: 'Binance rate limit exceeded' };
         }
         if (cause?.status === 403) {
           return { status: 'failed', reason: 'API key requires read permissions' };
+        }
+        if (cause?.binanceCode) {
+          return { status: 'failed', reason: `Binance error code ${cause.binanceCode}` };
+        }
+        if (cause?.status) {
+          return { status: 'failed', reason: `Binance HTTP ${cause.status}` };
         }
         return { status: 'failed', reason: 'Binance unreachable' };
       }

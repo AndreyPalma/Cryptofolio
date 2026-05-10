@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
-import { getPasswordHash } from "../services/auth-bootstrap.js";
+import { getPasswordHash, ADMIN_USER_ID } from "../services/auth-bootstrap.js";
 import { verifyPassword } from "../services/password.js";
 
 const LoginBodySchema = z.object({
@@ -55,7 +55,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.status(401).send({ error: "Unauthorized" });
     }
 
-    const token = fastify.jwt.sign({ sub: "admin" }, { expiresIn: "24h" });
+    const token = fastify.jwt.sign({ sub: ADMIN_USER_ID }, { expiresIn: "24h" });
     reply.setCookie("token", token, getCookieOptions(false));
     return { ok: true };
   });
