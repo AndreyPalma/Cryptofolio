@@ -1,14 +1,14 @@
 // TransactionService — US-006
 // Funciones puras que reciben Pool como parámetro para ser testeables sin Fastify.
 
-import type { Pool } from 'pg';
+import type { Pool } from "pg";
 import type {
   CreateTransactionInput,
   CreateTransactionResult,
   Transaction,
   TransactionListQuery,
   TransactionListResult,
-} from '../types/transaction.js';
+} from "../types/transaction.js";
 import {
   processTransaction,
   type TransactionInput,
@@ -16,8 +16,8 @@ import {
   InsufficientBalanceError,
   InvalidTransactionError,
   InvalidPositionStateError,
-} from '../position-engine/index.js';
-import { ValidationError, NotFoundError } from './errors.js';
+} from "../position-engine/index.js";
+import { ValidationError, NotFoundError } from "./errors.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // createTransaction
@@ -28,35 +28,33 @@ export async function createTransaction(
   input: CreateTransactionInput,
 ): Promise<CreateTransactionResult> {
   // Step 1: Domain rule — TRANSFER_IN without price (before any DB call)
-  if (input.type === 'TRANSFER_IN' && input.price_usd_at_time === null) {
+  if (input.type === "TRANSFER_IN" && input.price_usd_at_time === null) {
     throw new ValidationError(
-      'Price required for manual TRANSFER_IN',
-      'PRICE_REQUIRED_FOR_TRANSFER_IN',
+      "Price required for manual TRANSFER_IN",
+      "PRICE_REQUIRED_FOR_TRANSFER_IN",
     );
   }
 
   // Step 2: Verify wallet exists
-  const walletCheck = await pool.query<{ id: string }>(
-    `SELECT id FROM wallets WHERE id = $1`,
-    [input.wallet_id],
-  );
+  const walletCheck = await pool.query<{ id: string }>(`SELECT id FROM wallets WHERE id = $1`, [
+    input.wallet_id,
+  ]);
   if (!walletCheck.rows[0]) {
-    throw new NotFoundError('Wallet not found', 'WALLET_NOT_FOUND');
+    throw new NotFoundError("Wallet not found", "WALLET_NOT_FOUND");
   }
 
   // Step 3: Verify token exists
-  const tokenCheck = await pool.query<{ id: string }>(
-    `SELECT id FROM tokens WHERE id = $1`,
-    [input.token_id],
-  );
+  const tokenCheck = await pool.query<{ id: string }>(`SELECT id FROM tokens WHERE id = $1`, [
+    input.token_id,
+  ]);
   if (!tokenCheck.rows[0]) {
-    throw new NotFoundError('Token not found', 'TOKEN_NOT_FOUND');
+    throw new NotFoundError("Token not found", "TOKEN_NOT_FOUND");
   }
 
   // Step 4: Acquire client and begin transaction
   const client = await pool.connect();
   try {
-    await client.query('BEGIN');
+    await client.query("BEGIN");
 
     // Step 5: Load active OPEN position
     const openPosResult = await client.query<{
@@ -86,7 +84,7 @@ export async function createTransaction(
           walletId: openPositionRow.wallet_id,
           tokenId: openPositionRow.token_id,
           cycleNumber: openPositionRow.cycle_number,
-          status: openPositionRow.status as 'OPEN' | 'CLOSED',
+          status: openPositionRow.status as "OPEN" | "CLOSED",
           balance: openPositionRow.balance,
           wac: openPositionRow.wac,
           costBasis: openPositionRow.cost_basis,
@@ -116,7 +114,7 @@ export async function createTransaction(
       amount: input.amount,
       priceUsd: input.price_usd_at_time,
       costSource: input.cost_source,
-      source: 'MANUAL',
+      source: "MANUAL",
       blockTimestamp: new Date(input.block_timestamp),
     };
 
@@ -199,7 +197,7 @@ export async function createTransaction(
       [
         input.wallet_id,
         input.token_id,
-        pos.id,
+        positionRow.id,
         input.type,
         new Date(input.block_timestamp),
         input.amount,
@@ -212,20 +210,20 @@ export async function createTransaction(
     const txRow = txInsertResult.rows[0]!;
 
     // Step 12: Commit
-    await client.query('COMMIT');
+    await client.query("COMMIT");
 
     // Step 15: Return result
     return {
       transaction_id: txRow.id,
       position_id: positionRow.id,
       cycle_number: positionRow.cycle_number,
-      status: positionRow.status as 'OPEN' | 'CLOSED',
+      status: positionRow.status as "OPEN" | "CLOSED",
       wac: positionRow.wac,
       balance: positionRow.balance,
     };
   } catch (err) {
     // Step 14: ROLLBACK on any error (except already-propagated domain errors that haven't touched DB)
-    await client.query('ROLLBACK');
+    await client.query("ROLLBACK");
     throw err;
   } finally {
     // Step 13: Always release the client
@@ -242,7 +240,7 @@ export async function listTransactions(
   query: TransactionListQuery,
 ): Promise<TransactionListResult> {
   const params: unknown[] = [query.wallet_id];
-  const conditions: string[] = ['wallet_id = $1'];
+  const conditions: string[] = ["wallet_id = $1"];
   let paramIdx = 2;
 
   if (query.token_id !== undefined) {
@@ -264,7 +262,7 @@ export async function listTransactions(
   const sql = `
     SELECT *, COUNT(*) OVER() AS total_count
     FROM transactions
-    WHERE ${conditions.join(' AND ')}
+    WHERE ${conditions.join(" AND ")}
     ORDER BY block_timestamp DESC
     LIMIT $${limitIdx} OFFSET $${offsetIdx}
   `;

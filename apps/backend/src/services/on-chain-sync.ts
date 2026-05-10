@@ -2,30 +2,34 @@
 // Orchestrates on-chain sync: fetch → classify → cost-resolve → persist (batched).
 // Follows the BinanceSyncService pattern: SyncRunHelper lifecycle, PositionStateBuffer, SyncEmitter.
 
-import type { Pool } from 'pg';
-import type { PriceService } from './price.js';
-import type { OnChainApiClient, NormalizedTx, NormalizedTokenTx } from '../sync/clients/on-chain-api.js';
-import type { DecomposedTransaction } from '../sync/classify.js';
-import type { SyncResult } from '../schemas/sync.js';
-import type { PositionState, ProcessTransactionInput } from '../position-engine/index.js';
-import { groupByTxHash, classifyAndDecomposeTransaction } from '../sync/classify.js';
-import { resolveTransferCost } from '../sync/cost-resolver.js';
+import type { Pool } from "pg";
+import type { PriceService } from "./price.js";
+import type {
+  OnChainApiClient,
+  NormalizedTx,
+  NormalizedTokenTx,
+} from "../sync/clients/on-chain-api.js";
+import type { DecomposedTransaction } from "../sync/classify.js";
+import type { SyncResult } from "../schemas/sync.js";
+import type { PositionState, ProcessTransactionInput } from "../position-engine/index.js";
+import { groupByTxHash, classifyAndDecomposeTransaction } from "../sync/classify.js";
+import { resolveTransferCost } from "../sync/cost-resolver.js";
 import {
   InvalidTransactionError,
   InsufficientBalanceError,
   InvalidPositionStateError,
-} from '../position-engine/index.js';
-import { NotFoundError } from './errors.js';
-import { SyncRunHelper } from './sync-run-helper.js';
-import { loadInitial, apply } from './position-state-buffer.js';
-import type { SyncEmitter } from './binance-sync.js';
+} from "../position-engine/index.js";
+import { NotFoundError } from "./errors.js";
+import { SyncRunHelper } from "./sync-run-helper.js";
+import { loadInitial, apply } from "./position-state-buffer.js";
+import type { SyncEmitter } from "./binance-sync.js";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 /** DefiLlama convention for native assets — used to create token rows for ETH/BNB. */
-const NATIVE_PSEUDO_ADDRESS: Record<'ETH' | 'BSC', string> = {
-  ETH: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
-  BSC: '0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c',
+const NATIVE_PSEUDO_ADDRESS: Record<"ETH" | "BSC", string> = {
+  ETH: "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  BSC: "0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c",
 };
 
 const PAGE_SIZE = 1000;
@@ -45,8 +49,8 @@ export interface OnChainSyncDeps {
 interface WalletRow {
   id: string;
   user_id: string;
-  wallet_type: 'ON_CHAIN' | 'CEX';
-  network: 'ETH' | 'BSC' | 'CEX_BINANCE';
+  wallet_type: "ON_CHAIN" | "CEX";
+  network: "ETH" | "BSC" | "CEX_BINANCE";
   address: string | null;
   last_synced_block: number;
 }
@@ -76,40 +80,48 @@ export class OnChainSyncService {
 
     const wallet = await this.loadWallet(walletId, userId);
 
-    if (wallet.wallet_type !== 'ON_CHAIN') {
-      throw new Error(`[OnChainSyncService] invariant violation: expected ON_CHAIN wallet, got ${wallet.wallet_type}`);
+    if (wallet.wallet_type !== "ON_CHAIN") {
+      throw new Error(
+        `[OnChainSyncService] invariant violation: expected ON_CHAIN wallet, got ${wallet.wallet_type}`,
+      );
     }
 
-    const network = wallet.network as 'ETH' | 'BSC';
-    const apiClient = network === 'ETH' ? this.deps.etherscanClient : this.deps.bsctraceClient;
+    const network = wallet.network as "ETH" | "BSC";
+    const apiClient = network === "ETH" ? this.deps.etherscanClient : this.deps.bsctraceClient;
 
     // Fail fast if API key is missing — before any network call
     apiClient.assertConfigured();
 
     if (!wallet.address) {
-      throw new Error(`[OnChainSyncService] invariant violation: ON_CHAIN wallet must have an address`);
+      throw new Error(
+        `[OnChainSyncService] invariant violation: ON_CHAIN wallet must have an address`,
+      );
     }
     const walletAddress = wallet.address.toLowerCase();
 
     const syncRunHelper = new SyncRunHelper(this.deps.pool);
-    const { runId } = await syncRunHelper.start(walletId, 'ON_CHAIN');
+    const { runId } = await syncRunHelper.start(walletId, "ON_CHAIN");
     const buffer = await loadInitial(this.deps.pool, walletId);
 
     try {
       // ── Step 1: fetch_normal ──
-      emit?.({ step: 'fetch_normal', status: 'running' });
-      const normalTxs = await this.paginateNormal(apiClient, walletAddress, wallet.last_synced_block);
-      emit?.({ step: 'fetch_normal', status: 'done', synced: normalTxs.length, skipped: 0 });
+      emit?.({ step: "fetch_normal", status: "running" });
+      const normalTxs = await this.paginateNormal(
+        apiClient,
+        walletAddress,
+        wallet.last_synced_block,
+      );
+      emit?.({ step: "fetch_normal", status: "done", synced: normalTxs.length, skipped: 0 });
       this.checkAborted(signal);
 
       // ── Step 2: fetch_tokens ──
-      emit?.({ step: 'fetch_tokens', status: 'running' });
+      emit?.({ step: "fetch_tokens", status: "running" });
       const tokenTxs = await this.paginateToken(apiClient, walletAddress, wallet.last_synced_block);
-      emit?.({ step: 'fetch_tokens', status: 'done', synced: tokenTxs.length, skipped: 0 });
+      emit?.({ step: "fetch_tokens", status: "done", synced: tokenTxs.length, skipped: 0 });
       this.checkAborted(signal);
 
       // ── Step 3: classify ──
-      emit?.({ step: 'classify', status: 'running' });
+      emit?.({ step: "classify", status: "running" });
       const groups = groupByTxHash(normalTxs, tokenTxs);
       const decomposed: DecomposedTransaction[] = groups.flatMap((g) =>
         classifyAndDecomposeTransaction(g, walletAddress, network),
@@ -123,7 +135,7 @@ export class OnChainSyncService {
           a.transactionIndex - b.transactionIndex ||
           a.txLogIndex - b.txLogIndex,
       );
-      emit?.({ step: 'classify', status: 'done', synced: decomposed.length, skipped: 0 });
+      emit?.({ step: "classify", status: "done", synced: decomposed.length, skipped: 0 });
       this.checkAborted(signal);
 
       // ── Step 4: persist (batched) ──
@@ -145,12 +157,12 @@ export class OnChainSyncService {
       syncRunHelper.recordTxsPersisted(runId, counters.synced);
       await syncRunHelper.commitSuccess(runId, {
         positions: buffer,
-        cursorUpdates: [{ operation: 'block', value: String(lastBlock) }],
+        cursorUpdates: [{ operation: "block", value: String(lastBlock) }],
       });
 
       // Best-effort last_synced_at
       await this.deps.pool
-        .query('UPDATE wallets SET last_synced_at = now() WHERE id = $1', [walletId])
+        .query("UPDATE wallets SET last_synced_at = now() WHERE id = $1", [walletId])
         .catch(() => undefined);
 
       return await this.buildResult(counters, newTransactionIds);
@@ -163,14 +175,14 @@ export class OnChainSyncService {
   // ─── Private: checkAborted ───────────────────────────────────────────────
 
   private checkAborted(signal?: AbortSignal): void {
-    if (signal?.aborted) throw new Error('ABORTED');
+    if (signal?.aborted) throw new Error("ABORTED");
   }
 
   // ─── Private: persistBatched ─────────────────────────────────────────────
 
   private async persistBatched(
     walletId: string,
-    network: 'ETH' | 'BSC',
+    network: "ETH" | "BSC",
     runId: string,
     buffer: Map<string, PositionState>,
     decomposed: DecomposedTransaction[],
@@ -186,7 +198,7 @@ export class OnChainSyncService {
     };
     const newTransactionIds: string[] = [];
 
-    emit?.({ step: 'persist', status: 'running' });
+    emit?.({ step: "persist", status: "running" });
 
     for (let i = 0; i < decomposed.length; i += ON_CHAIN_PERSIST_BATCH_SIZE) {
       const batch = decomposed.slice(i, i + ON_CHAIN_PERSIST_BATCH_SIZE);
@@ -201,27 +213,27 @@ export class OnChainSyncService {
         );
 
         let priceUsd: string | null = null;
-        let costSource: 'MARKET' | 'INHERITED' | 'MANUAL' | null = null;
+        let costSource: "MARKET" | "INHERITED" | "MANUAL" | null = null;
 
-        if (tx.type === 'BUY' || tx.type === 'SWAP_IN') {
+        if (tx.type === "BUY" || tx.type === "SWAP_IN") {
           const r = await this.deps.priceService.getOnChainPrice(network, tokenContract);
-          priceUsd = 'priceUsd' in r ? r.priceUsd : null;
-          costSource = 'MARKET';
-        } else if (tx.type === 'TRANSFER_IN') {
+          priceUsd = "priceUsd" in r ? r.priceUsd : null;
+          costSource = "MARKET";
+        } else if (tx.type === "TRANSFER_IN") {
           const pgc = await this.deps.pool.connect();
           try {
             const cost = await resolveTransferCost(pgc, tx.txHash, tx.fromAddress, tokenId);
             priceUsd = cost.priceUsd;
             costSource = cost.costSource;
-            if (cost.costSource === 'MANUAL') counters.transfersPendingCost++;
-            else if ('originCexTransferId' in cost) counters.transfersInheritedFromCEX++;
+            if (cost.costSource === "MANUAL") counters.transfersPendingCost++;
+            else if ("originCexTransferId" in cost) counters.transfersInheritedFromCEX++;
           } finally {
             pgc.release();
           }
         } else {
           // SELL, SWAP_OUT, TRANSFER_OUT — live price for P&L (optional)
           const r = await this.deps.priceService.getOnChainPrice(network, tokenContract);
-          priceUsd = 'priceUsd' in r ? r.priceUsd : null;
+          priceUsd = "priceUsd" in r ? r.priceUsd : null;
           costSource = null;
         }
 
@@ -238,18 +250,18 @@ export class OnChainSyncService {
         if (inserted) {
           counters.synced++;
           newTransactionIds.push(tx.id);
-          if (tx.type === 'SWAP_OUT') counters.swapsDecomposed++;
+          if (tx.type === "SWAP_OUT") counters.swapsDecomposed++;
         } else {
           counters.skipped++;
         }
       }
 
       const done = Math.min(i + batch.length, decomposed.length);
-      emit?.({ type: 'batchProgress', done, total: decomposed.length });
+      emit?.({ type: "batchProgress", done, total: decomposed.length });
       this.checkAborted(signal);
     }
 
-    emit?.({ step: 'persist', status: 'done', synced: counters.synced, skipped: 0 });
+    emit?.({ step: "persist", status: "done", synced: counters.synced, skipped: 0 });
     return { counters, newTransactionIds };
   }
 
@@ -264,7 +276,7 @@ export class OnChainSyncService {
 
     const wallet = result.rows[0];
     if (wallet?.user_id !== userId) {
-      throw new NotFoundError('Wallet not found', 'WALLET_NOT_FOUND');
+      throw new NotFoundError("Wallet not found", "WALLET_NOT_FOUND");
     }
 
     return wallet;
@@ -310,11 +322,10 @@ export class OnChainSyncService {
     return all;
   }
 
-
   // ─── Private: ensureToken ─────────────────────────────────────────────────
 
   private async ensureToken(
-    network: 'ETH' | 'BSC',
+    network: "ETH" | "BSC",
     contractAddress: string,
     symbol: string,
     decimals: number,
@@ -349,7 +360,9 @@ export class OnChainSyncService {
     );
     const retryRow = retry.rows[0];
     if (!retryRow) {
-      throw new Error(`[OnChainSyncService] token row must exist after ON CONFLICT: ${network}/${addr}`);
+      throw new Error(
+        `[OnChainSyncService] token row must exist after ON CONFLICT: ${network}/${addr}`,
+      );
     }
     return retryRow.id;
   }
@@ -363,10 +376,10 @@ export class OnChainSyncService {
     buffer: Map<string, PositionState>,
     tx: DecomposedTransaction,
     priceUsd: string | null,
-    costSource: 'MARKET' | 'INHERITED' | 'MANUAL' | null,
+    costSource: "MARKET" | "INHERITED" | "MANUAL" | null,
   ): Promise<{ inserted: boolean }> {
     // Build engine input — buffer state takes precedence via apply()
-    const positionIdentity: ProcessTransactionInput['positionIdentity'] = {
+    const positionIdentity: ProcessTransactionInput["positionIdentity"] = {
       id: crypto.randomUUID(),
       walletId,
       tokenId,
@@ -404,10 +417,55 @@ export class OnChainSyncService {
 
     const pos = buffer.get(tokenId);
     if (!pos) {
-      throw new Error(`[OnChainSyncService] buffer must have position for token ${tokenId} after apply`);
+      throw new Error(
+        `[OnChainSyncService] buffer must have position for token ${tokenId} after apply`,
+      );
     }
 
-    // INSERT transaction — position will be upserted atomically by commitSuccess
+    // Upsert position BEFORE transaction — FK requires the row to exist.
+    // commitSuccess will still do a final upsert of all positions.
+    await this.deps.pool.query(
+      `INSERT INTO positions (
+        id, wallet_id, token_id, cycle_number, status,
+        balance, wac, cost_basis, realized_pnl_usd,
+        opened_at, closed_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      ON CONFLICT (wallet_id, token_id, cycle_number)
+      DO UPDATE SET
+        status           = EXCLUDED.status,
+        balance          = EXCLUDED.balance,
+        wac              = EXCLUDED.wac,
+        cost_basis       = EXCLUDED.cost_basis,
+        realized_pnl_usd = EXCLUDED.realized_pnl_usd,
+        closed_at        = EXCLUDED.closed_at`,
+      [
+        pos.id,
+        pos.walletId,
+        pos.tokenId,
+        pos.cycleNumber,
+        pos.status,
+        pos.balance,
+        pos.wac,
+        pos.costBasis,
+        pos.realizedPnlUsd,
+        pos.openedAt,
+        pos.closedAt,
+      ],
+    );
+
+    // Retrieve the canonical DB id — pos.id may be a generated UUID that differs
+    // from the existing row when ON CONFLICT DO UPDATE fires.
+    const idResult = await this.deps.pool.query<{ id: string }>(
+      `SELECT id FROM positions WHERE wallet_id = $1 AND token_id = $2 AND cycle_number = $3`,
+      [pos.walletId, pos.tokenId, pos.cycleNumber],
+    );
+    const canonicalPositionId = idResult.rows[0]?.id;
+    if (!canonicalPositionId) {
+      throw new Error(
+        `[OnChainSyncService] position row not found after upsert for ${pos.walletId}/${pos.tokenId}/${String(pos.cycleNumber)}`,
+      );
+    }
+
     const txResult = await this.deps.pool.query<{ id: string }>(
       `INSERT INTO transactions (
         id, wallet_id, token_id, position_id, type, source,
@@ -420,7 +478,7 @@ export class OnChainSyncService {
         tx.id,
         walletId,
         tokenId,
-        pos.id,
+        canonicalPositionId,
         tx.type,
         tx.source,
         tx.txHash,
@@ -471,14 +529,15 @@ export class OnChainSyncService {
 
     const newTransactions = result.rows.map((r) => ({
       id: r.id,
-      type: r.type as 'BUY' | 'SELL' | 'SWAP_IN' | 'SWAP_OUT' | 'TRANSFER_IN' | 'TRANSFER_OUT',
+      type: r.type as "BUY" | "SELL" | "SWAP_IN" | "SWAP_OUT" | "TRANSFER_IN" | "TRANSFER_OUT",
       txHash: r.tx_hash,
-      blockTimestamp: r.block_timestamp instanceof Date
-        ? r.block_timestamp.toISOString()
-        : String(r.block_timestamp),
+      blockTimestamp:
+        r.block_timestamp instanceof Date
+          ? r.block_timestamp.toISOString()
+          : String(r.block_timestamp),
       amount: r.amount,
       priceUsd: r.price_usd ?? null,
-      costSource: (r.cost_source as 'MARKET' | 'INHERITED' | 'MANUAL' | null) ?? null,
+      costSource: (r.cost_source as "MARKET" | "INHERITED" | "MANUAL" | null) ?? null,
     }));
 
     return {

@@ -3,15 +3,23 @@
 // Receives a PoolClient — stateless, no module-level DB. Lives in sync/ so the
 // engine vitest project can import the type without a Pool dependency.
 
-import { Decimal } from 'decimal.js';
-import type { PoolClient } from 'pg';
+import { Decimal } from "decimal.js";
+import type { PoolClient } from "pg";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type CostResolution =
-  | { readonly costSource: 'INHERITED'; readonly priceUsd: string; readonly originPositionId: string }
-  | { readonly costSource: 'INHERITED'; readonly priceUsd: string; readonly originCexTransferId: string }
-  | { readonly costSource: 'MANUAL';    readonly priceUsd: null };
+  | {
+      readonly costSource: "INHERITED";
+      readonly priceUsd: string;
+      readonly originPositionId: string;
+    }
+  | {
+      readonly costSource: "INHERITED";
+      readonly priceUsd: string;
+      readonly originCexTransferId: string;
+    }
+  | { readonly costSource: "MANUAL"; readonly priceUsd: null };
 
 // ─── resolveTransferCost ─────────────────────────────────────────────────────
 
@@ -48,13 +56,17 @@ export async function resolveTransferCost(
 
   if (step1.rows[0]) {
     return {
-      costSource: 'INHERITED',
+      costSource: "INHERITED",
       priceUsd: new Decimal(step1.rows[0].wac).toFixed(2),
       originPositionId: step1.rows[0].position_id,
     };
   }
 
   // Step 2 — Binance withdrawal that wrote this txHash on a CEX TRANSFER_OUT
+  // NOTE: This path is currently unreachable (dead code) because
+  // BinanceSyncService never populates `position_id` on CEX TRANSFER_OUT rows.
+  // The JOIN positions therefore matches nothing, and the lookup falls through
+  // to Step 3 (MANUAL) for all cases. Kept for documentation and future fix.
   const step2 = await pgc.query<{ id: string; wac: string }>(
     `SELECT t.id, p.wac
        FROM transactions t
@@ -69,12 +81,12 @@ export async function resolveTransferCost(
 
   if (step2.rows[0]) {
     return {
-      costSource: 'INHERITED',
+      costSource: "INHERITED",
       priceUsd: new Decimal(step2.rows[0].wac).toFixed(2),
       originCexTransferId: step2.rows[0].id,
     };
   }
 
   // Step 3 — fallback: user must enter price manually
-  return { costSource: 'MANUAL', priceUsd: null };
+  return { costSource: "MANUAL", priceUsd: null };
 }

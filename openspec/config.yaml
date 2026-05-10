@@ -1,15 +1,16 @@
 schema: spec-driven
 
 context: |
-  Project: CryptoLedger — personal crypto portfolio tracker (single-user).
-  State: greenfield — only prd.json (v5 spec, authoritative) + prototipo/ (UI mockup).
-  Planned stack: Fastify + TypeScript + Zod 4 (backend), React + Vite + Tailwind 4 (frontend),
-  Supabase Postgres, JWT HS256 + bcrypt (single-user auth).
-  Accounting engine: WAC puro, per-position cycles, swap decomposition (on-chain + Binance Convert),
-  WAC inheritance on TRANSFER_IN via wallet address or Binance withdrawal tx_hash bridge.
-  Language in artifacts: Spanish (Rioplatense voseo) for prose, English for code/identifiers.
+  Project: Cryptofolio — personal crypto portfolio tracker (single-user).
+  State: implemented through US-018. Backend, frontend, DB schema, on-chain + Binance sync,
+  position engine are all real code.
+  Stack: Fastify 5 + Zod 4 + pg + decimal.js + viem (backend), React 19 + react-router-dom v7
+  + Tailwind v4 + Vite 6 (frontend), PostgreSQL via node-pg-migrate (DB).
+  Auth: JWT HS256 + bcrypt via @fastify/cookie + @fastify/jwt.
+  Accounting: WAC puro, per-position cycles, swap decomposition, WAC inheritance on TRANSFER_IN.
+  Language: Spanish-leaning with English technical terms.
 
-strict_tdd: true
+strict_tdd: false
 
 rules:
   proposal:
@@ -34,7 +35,6 @@ rules:
     - Load relevant coding skills (typescript, zod-4, nodejs-backend-patterns, react-19, tailwind-4)
     - Strict TDD: write failing test, make it pass, refactor
   verify:
-    - Run tests via the scripts defined in US-001 (test:engine, test:sync, test:e2e)
     - Compare implementation against every spec scenario AND every PRD acceptance criterion
     - Flag any drift from PRD invariants as CRITICAL
   archive:
@@ -42,29 +42,23 @@ rules:
     - Update prd.json version field if accounting semantics changed
 
 testing:
-  strict_tdd_mode: true
-  detected_at: 2026-04-28
+  strict_tdd_mode: false
+  detected_at: 2026-05-10
   test_runner:
-    framework: vitest
-    version: "^2.1.0"
-    command: "vitest run"
-    status: configured
+    framework: none
+    status: not_found
   layers:
     unit:
-      available: true
-      tool: vitest
-      command: "npm run test:engine"
+      available: false
+      tool: —
     integration:
-      available: true
-      tool: vitest
-      command: "npm run test:sync"
+      available: false
+      tool: —
     e2e:
-      available: true
-      tool: vitest
-      command: "npm run test:e2e"
+      available: false
+      tool: —
   coverage:
-    available: true
-    command: "vitest run --coverage"
+    available: false
   quality:
     linter:
       available: true
