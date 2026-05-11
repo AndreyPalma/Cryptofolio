@@ -2,9 +2,9 @@
 // Singleton de proceso: cache vive a nivel módulo (Map no instanciado por request).
 // createPriceService(log) captura el logger; el cache es compartido entre llamadas.
 
-import { z } from 'zod';
-import type { FastifyBaseLogger } from 'fastify';
-import type { PriceResult } from '../types/portfolio.js';
+import { z } from "zod";
+import type { FastifyBaseLogger } from "fastify";
+import type { PriceResult } from "../types/portfolio.js";
 
 // ─── Cache primitives ─────────────────────────────────────────────────────────
 
@@ -21,7 +21,7 @@ const cache = new Map<string, CacheEntry>();
 
 // ─── Cache key helpers ────────────────────────────────────────────────────────
 
-function onChainKey(network: 'ETH' | 'BSC', address: string): string {
+function onChainKey(network: "ETH" | "BSC", address: string): string {
   return `onchain:${network.toLowerCase()}:${address.toLowerCase()}`;
 }
 
@@ -29,8 +29,8 @@ function cexKey(binanceSymbol: string): string {
   return `cex:${binanceSymbol.toUpperCase()}`;
 }
 
-function defiLlamaChain(network: 'ETH' | 'BSC'): 'ethereum' | 'bsc' {
-  return network === 'ETH' ? 'ethereum' : 'bsc';
+function defiLlamaChain(network: "ETH" | "BSC"): "ethereum" | "bsc" {
+  return network === "ETH" ? "ethereum" : "bsc";
 }
 
 // ─── Cache helpers ────────────────────────────────────────────────────────────
@@ -42,9 +42,7 @@ function readCache(key: string): PriceResult | null {
     cache.delete(key);
     return null;
   }
-  return entry.priceUsd === null
-    ? { priceUnavailable: true }
-    : { priceUsd: entry.priceUsd };
+  return entry.priceUsd === null ? { priceUnavailable: true } : { priceUsd: entry.priceUsd };
 }
 
 function markUnavailable(key: string, ttl: number): void {
@@ -77,7 +75,7 @@ const BinanceTickerSchema = z.object({
 // ─── Fetch helpers ────────────────────────────────────────────────────────────
 
 async function fetchDefiLlamaBulk(
-  requests: readonly { network: 'ETH' | 'BSC'; address: string }[],
+  requests: readonly { network: "ETH" | "BSC"; address: string }[],
   log: FastifyBaseLogger,
 ): Promise<Map<string, PriceResult>> {
   const result = new Map<string, PriceResult>();
@@ -85,16 +83,18 @@ async function fetchDefiLlamaBulk(
 
   const coinsParam = requests
     .map((r) => `${defiLlamaChain(r.network)}:${r.address.toLowerCase()}`)
-    .join(',');
+    .join(",");
 
   const url = `https://coins.llama.fi/prices/current/${coinsParam}`;
   const ctrl = new AbortController();
-  const timer = setTimeout(() => { ctrl.abort(); }, FETCH_TIMEOUT_MS);
+  const timer = setTimeout(() => {
+    ctrl.abort();
+  }, FETCH_TIMEOUT_MS);
 
   try {
     const res = await fetch(url, { signal: ctrl.signal });
     if (!res.ok) {
-      log.debug({ url, status: res.status, source: 'DEFILLAMA' }, 'price fetch non-200');
+      log.debug({ url, status: res.status, source: "DEFILLAMA" }, "price fetch non-200");
       for (const r of requests) {
         const key = onChainKey(r.network, r.address);
         markUnavailable(key, TTL_DEFILLAMA_MS);
@@ -106,7 +106,7 @@ async function fetchDefiLlamaBulk(
     const json: unknown = await res.json();
     const parsed = DefiLlamaResponseSchema.safeParse(json);
     if (!parsed.success) {
-      log.debug({ url, source: 'DEFILLAMA', issues: parsed.error.issues }, 'price schema mismatch');
+      log.debug({ url, source: "DEFILLAMA", issues: parsed.error.issues }, "price schema mismatch");
       for (const r of requests) {
         const key = onChainKey(r.network, r.address);
         markUnavailable(key, TTL_DEFILLAMA_MS);
@@ -130,13 +130,73 @@ async function fetchDefiLlamaBulk(
     }
     return result;
   } catch (err) {
-    log.debug({ url, source: 'DEFILLAMA', err: String(err) }, 'price fetch threw');
+    log.debug({ url, source: "DEFILLAMA", err: String(err) }, "price fetch threw");
     for (const r of requests) {
       const key = onChainKey(r.network, r.address);
       markUnavailable(key, TTL_DEFILLAMA_MS);
       result.set(key, { priceUnavailable: true });
     }
     return result;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// ─── Historical price fetch ───────────────────────────────────────────────────
+
+const DefiLlamaHistoricalResponseSchema = z.object({
+  coins: z.record(
+    z.string(),
+    z.object({
+      price: z.number(),
+      timestamp: z.number(),
+    }),
+  ),
+});
+
+async function fetchDefiLlamaHistorical(
+  network: "ETH" | "BSC",
+  address: string,
+  timestampSec: number,
+  log: FastifyBaseLogger,
+): Promise<PriceResult> {
+  const coin = `${defiLlamaChain(network)}:${address.toLowerCase()}`;
+  const url = `https://coins.llama.fi/prices/historical/${String(timestampSec)}/${coin}`;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => {
+    ctrl.abort();
+  }, FETCH_TIMEOUT_MS);
+
+  try {
+    const res = await fetch(url, { signal: ctrl.signal });
+    if (!res.ok) {
+      log.debug(
+        { url, status: res.status, source: "DEFILLAMA_HIST" },
+        "historical price fetch non-200",
+      );
+      return { priceUnavailable: true };
+    }
+
+    const json: unknown = await res.json();
+    const parsed = DefiLlamaHistoricalResponseSchema.safeParse(json);
+    if (!parsed.success) {
+      log.debug(
+        { url, source: "DEFILLAMA_HIST", issues: parsed.error.issues },
+        "historical price schema mismatch",
+      );
+      return { priceUnavailable: true };
+    }
+
+    const coinData = parsed.data.coins[coin];
+    if (!coinData) {
+      log.debug({ url, source: "DEFILLAMA_HIST", coin }, "historical price coin not found");
+      return { priceUnavailable: true };
+    }
+
+    return { priceUsd: String(coinData.price) };
+  } catch (err) {
+    log.debug({ url, source: "DEFILLAMA_HIST", err: String(err) }, "historical price fetch threw");
+    return { priceUnavailable: true };
   } finally {
     clearTimeout(timer);
   }
@@ -149,26 +209,28 @@ async function fetchBinanceTicker(
   const key = cexKey(binanceSymbol);
   const url = `https://api.binance.com/api/v3/ticker/price?symbol=${encodeURIComponent(binanceSymbol.toUpperCase())}USDT`;
   const ctrl = new AbortController();
-  const timer = setTimeout(() => { ctrl.abort(); }, FETCH_TIMEOUT_MS);
+  const timer = setTimeout(() => {
+    ctrl.abort();
+  }, FETCH_TIMEOUT_MS);
 
   try {
     const res = await fetch(url, { signal: ctrl.signal });
     if (!res.ok) {
-      log.debug({ url, status: res.status, source: 'BINANCE' }, 'price fetch non-200');
+      log.debug({ url, status: res.status, source: "BINANCE" }, "price fetch non-200");
       markUnavailable(key, TTL_BINANCE_MS);
       return { priceUnavailable: true };
     }
     const json: unknown = await res.json();
     const parsed = BinanceTickerSchema.safeParse(json);
     if (!parsed.success) {
-      log.debug({ url, source: 'BINANCE', issues: parsed.error.issues }, 'price schema mismatch');
+      log.debug({ url, source: "BINANCE", issues: parsed.error.issues }, "price schema mismatch");
       markUnavailable(key, TTL_BINANCE_MS);
       return { priceUnavailable: true };
     }
     markAvailable(key, parsed.data.price, TTL_BINANCE_MS);
     return { priceUsd: parsed.data.price };
   } catch (err) {
-    log.debug({ url, source: 'BINANCE', err: String(err) }, 'price fetch threw');
+    log.debug({ url, source: "BINANCE", err: String(err) }, "price fetch threw");
     markUnavailable(key, TTL_BINANCE_MS);
     return { priceUnavailable: true };
   } finally {
@@ -179,10 +241,15 @@ async function fetchBinanceTicker(
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export interface PriceService {
-  getOnChainPrice(network: 'ETH' | 'BSC', address: string): Promise<PriceResult>;
+  getOnChainPrice(network: "ETH" | "BSC", address: string): Promise<PriceResult>;
+  getHistoricalPrice(
+    network: "ETH" | "BSC",
+    address: string,
+    timestampSec: number,
+  ): Promise<PriceResult>;
   getCexPrice(binanceSymbol: string): Promise<PriceResult>;
   getOnChainPricesBulk(
-    requests: readonly { network: 'ETH' | 'BSC'; address: string }[],
+    requests: readonly { network: "ETH" | "BSC"; address: string }[],
   ): Promise<Map<string, PriceResult>>;
   getFiatToUsdAt(fiatCurrency: string, timestampMs: number): Promise<string | null>;
   __resetCacheForTests?(): void;
@@ -198,6 +265,10 @@ export function createPriceService(log: FastifyBaseLogger): PriceService {
       return resultMap.get(key) ?? { priceUnavailable: true };
     },
 
+    async getHistoricalPrice(network, address, timestampSec) {
+      return fetchDefiLlamaHistorical(network, address, timestampSec, log);
+    },
+
     async getCexPrice(binanceSymbol) {
       const key = cexKey(binanceSymbol);
       const cached = readCache(key);
@@ -209,7 +280,7 @@ export function createPriceService(log: FastifyBaseLogger): PriceService {
       const result = new Map<string, PriceResult>();
       if (requests.length === 0) return result;
 
-      const uncached: { network: 'ETH' | 'BSC'; address: string }[] = [];
+      const uncached: { network: "ETH" | "BSC"; address: string }[] = [];
 
       for (const r of requests) {
         const key = onChainKey(r.network, r.address);
@@ -232,12 +303,14 @@ export function createPriceService(log: FastifyBaseLogger): PriceService {
     },
 
     async getFiatToUsdAt(fiatCurrency, _timestampMs) {
-      if (fiatCurrency.toUpperCase() === 'USD') return '1';
+      if (fiatCurrency.toUpperCase() === "USD") return "1";
 
       const symbol = `${fiatCurrency.toUpperCase()}USDT`;
       const url = `https://api.binance.com/api/v3/ticker/price?symbol=${encodeURIComponent(symbol)}`;
       const ctrl = new AbortController();
-      const timer = setTimeout(() => { ctrl.abort(); }, FETCH_TIMEOUT_MS);
+      const timer = setTimeout(() => {
+        ctrl.abort();
+      }, FETCH_TIMEOUT_MS);
 
       try {
         const res = await fetch(url, { signal: ctrl.signal });

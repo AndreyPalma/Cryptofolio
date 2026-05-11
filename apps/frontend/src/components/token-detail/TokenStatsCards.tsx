@@ -1,6 +1,7 @@
 import { formatUsd, formatCrypto } from "../../lib/format";
 import { PnlDisplay } from "../dashboard/PnlDisplay";
-import type { PositionStats } from "../../types/token-detail";
+import type { PositionStats, TokenInfo } from "../../types/token-detail";
+import type { DecimalString } from "../../types/portfolio";
 
 interface StatCardProps {
   label: string;
@@ -18,44 +19,53 @@ function StatCard({ label, children }: StatCardProps) {
 
 interface TokenStatsCardsProps {
   position: PositionStats | null;
+  token: TokenInfo;
+  transactionsCount: number;
+  currentPrice: DecimalString | null;
+  priceUnavailable?: boolean;
 }
 
-export function TokenStatsCards({ position }: TokenStatsCardsProps) {
+export function TokenStatsCards({
+  position,
+  _token,
+  transactionsCount,
+  currentPrice,
+  priceUnavailable,
+}: TokenStatsCardsProps) {
   const dash = <span className="text-gray-400">—</span>;
-  const priceUnavailable = position?.priceUnavailable === true;
+  const isPriceUnavailable = priceUnavailable === true;
+
+  // When no open position but we have transactions, show current price
+  // and zeroes for balance/value
+  const hasNoPosition = position === null;
+  const showEmptyState = hasNoPosition && transactionsCount > 0;
 
   return (
     <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-6">
       <StatCard label="Balance">
-        {position ? formatCrypto(position.totalBalance) : dash}
+        {position ? formatCrypto(position.totalBalance) : showEmptyState ? formatCrypto("0") : dash}
       </StatCard>
 
       <StatCard label="Current Price">
-        {!position || priceUnavailable || position.currentPrice === null
-          ? dash
-          : formatUsd(position.currentPrice)}
+        {isPriceUnavailable || currentPrice === null ? dash : formatUsd(currentPrice)}
       </StatCard>
 
       <StatCard label="Current Value">
-        {!position || priceUnavailable || position.totalCurrentValue === null
-          ? dash
+        {!position || isPriceUnavailable || position.totalCurrentValue === null
+          ? showEmptyState
+            ? formatUsd("0")
+            : dash
           : formatUsd(position.totalCurrentValue)}
       </StatCard>
 
-      <StatCard label="WAC">
-        {position ? formatUsd(position.wacAggregated) : dash}
-      </StatCard>
+      <StatCard label="WAC">{position ? formatUsd(position.wacAggregated) : dash}</StatCard>
 
       <StatCard label="Cost Basis">
-        {position ? formatUsd(position.totalCostBasis) : dash}
+        {position ? formatUsd(position.totalCostBasis) : showEmptyState ? formatUsd("0") : dash}
       </StatCard>
 
       <StatCard label="P&L">
-        {!position || priceUnavailable ? (
-          dash
-        ) : (
-          <PnlDisplay value={position.pnlUsd} kind="usd" />
-        )}
+        {!position || isPriceUnavailable ? dash : <PnlDisplay value={position.pnlUsd} kind="usd" />}
       </StatCard>
     </div>
   );

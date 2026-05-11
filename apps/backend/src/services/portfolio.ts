@@ -1,7 +1,7 @@
 // PortfolioService — US-007
 
-import type { Pool } from 'pg';
-import type { PriceService } from './price.js';
+import type { Pool } from "pg";
+import type { PriceService } from "./price.js";
 import type {
   PortfolioSummary,
   TokenPortfolioRow,
@@ -13,13 +13,13 @@ import type {
   TokenNetwork,
   PriceResult,
   PnlInfo,
-} from '../types/portfolio.js';
-import type { TransactionType, TransactionSource, CostSource } from '../db/types.js';
-import { calculateWAC } from '../position-engine/index.js';
-import type { PositionState } from '../position-engine/index.js';
-import { toDecimal, roundToStorage, ZERO } from '../position-engine/decimal-utils.js';
-import { findByContractAddress } from './token.js';
-import { NotFoundError } from './errors.js';
+} from "../types/portfolio.js";
+import type { TransactionType, TransactionSource, CostSource } from "../db/types.js";
+import { calculateWAC } from "../position-engine/index.js";
+import type { PositionState } from "../position-engine/index.js";
+import { toDecimal, roundToStorage, ZERO } from "../position-engine/decimal-utils.js";
+import { findByContractAddress } from "./token.js";
+import { NotFoundError } from "./errors.js";
 
 // ─── Internal raw row types ───────────────────────────────────────────────────
 
@@ -42,7 +42,7 @@ interface PositionRow {
   decimals: number;
   target_exit_price: string | null;
   wallet_label: string | null;
-  wallet_type: 'ON_CHAIN' | 'CEX';
+  wallet_type: "ON_CHAIN" | "CEX";
 }
 
 interface TxRow {
@@ -93,7 +93,7 @@ const POSITION_BASE_SQL = `
 function buildVirtualPosition(rows: PositionRow[]): PositionState {
   const firstRow = rows[0];
   if (!firstRow) {
-    throw new Error('buildVirtualPosition requires at least one row');
+    throw new Error("buildVirtualPosition requires at least one row");
   }
 
   let totalBalance = ZERO;
@@ -121,7 +121,7 @@ function buildVirtualPosition(rows: PositionRow[]): PositionState {
     walletId: firstRow.wallet_id,
     tokenId: firstRow.token_id,
     cycleNumber: maxCycle,
-    status: 'OPEN',
+    status: "OPEN",
     balance: roundToStorage(totalBalance),
     wac: roundToStorage(wacAggregated),
     costBasis: roundToStorage(totalCostBasis),
@@ -136,10 +136,10 @@ function buildVirtualPosition(rows: PositionRow[]): PositionState {
 function buildPortfolioRow(rows: PositionRow[], priceResult: PriceResult): TokenPortfolioRow {
   const first = rows[0];
   if (!first) {
-    throw new Error('buildPortfolioRow requires at least one row');
+    throw new Error("buildPortfolioRow requires at least one row");
   }
   const virtual = buildVirtualPosition(rows);
-  const currentPrice = 'priceUsd' in priceResult ? priceResult.priceUsd : null;
+  const currentPrice = "priceUsd" in priceResult ? priceResult.priceUsd : null;
   const wacResult = calculateWAC(virtual, currentPrice);
   const totalBalance = toDecimal(virtual.balance);
   const totalCurrentValue = currentPrice
@@ -149,7 +149,7 @@ function buildPortfolioRow(rows: PositionRow[], priceResult: PriceResult): Token
   return {
     symbol: first.symbol,
     network: first.network as TokenNetwork,
-    sourceType: first.wallet_type === 'ON_CHAIN' ? 'ON_CHAIN' : 'CEX',
+    sourceType: first.wallet_type === "ON_CHAIN" ? "ON_CHAIN" : "CEX",
     contractAddress: first.contract_address,
     binanceSymbol: first.binance_symbol,
     totalBalance: virtual.balance,
@@ -167,7 +167,7 @@ function buildPortfolioRow(rows: PositionRow[], priceResult: PriceResult): Token
       wac: r.wac,
     })),
     cycleNumber: virtual.cycleNumber,
-    priceUnavailable: 'priceUnavailable' in priceResult ? true : undefined,
+    priceUnavailable: "priceUnavailable" in priceResult ? true : undefined,
   };
 }
 
@@ -179,9 +179,9 @@ export function computePnl(
   currentPrice: string | null,
   amount: string,
 ): PnlInfo {
-  if (type === 'BUY' || type === 'SWAP_IN' || type === 'TRANSFER_IN' || type === 'FIAT_IN') {
+  if (type === "BUY" || type === "SWAP_IN" || type === "TRANSFER_IN" || type === "FIAT_IN") {
     if (priceUsd === null || currentPrice === null) {
-      return { kind: 'INBOUND', lotPnlUsd: null, lotPnlPct: null };
+      return { kind: "INBOUND", lotPnlUsd: null, lotPnlPct: null };
     }
     const priceD = toDecimal(priceUsd);
     const currentD = toDecimal(currentPrice);
@@ -190,7 +190,7 @@ export function computePnl(
     const lotPnlPct = priceD.isZero()
       ? null
       : roundToStorage(currentD.minus(priceD).div(priceD).times(100));
-    return { kind: 'INBOUND', lotPnlUsd, lotPnlPct };
+    return { kind: "INBOUND", lotPnlUsd, lotPnlPct };
   }
   // OUTBOUND: SELL, SWAP_OUT, TRANSFER_OUT, FIAT_OUT
   // realizedPnlUsd = (currentPrice - priceUsd) × amount; null when either price is null
@@ -198,7 +198,7 @@ export function computePnl(
     priceUsd !== null && currentPrice !== null
       ? roundToStorage(toDecimal(currentPrice).minus(toDecimal(priceUsd)).times(toDecimal(amount)))
       : null;
-  return { kind: 'OUTBOUND', displayAs: 'Sold/Out', realizedPnlUsd };
+  return { kind: "OUTBOUND", displayAs: "Sold/Out", realizedPnlUsd };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -221,7 +221,7 @@ export async function getPortfolioSummary(
   for (const row of result.rows) {
     if (toDecimal(row.balance).isZero()) continue;
     const key =
-      row.wallet_type === 'ON_CHAIN'
+      row.wallet_type === "ON_CHAIN"
         ? `${row.contract_address.toLowerCase()}:${row.network}`
         : row.position_id;
     const existing = groups.get(key);
@@ -233,14 +233,17 @@ export async function getPortfolioSummary(
   }
 
   // 3. Collect price-fetch plan
-  const onChainRequests: { network: 'ETH' | 'BSC'; address: string }[] = [];
+  const onChainRequests: { network: "ETH" | "BSC"; address: string }[] = [];
   const cexSymbolsSet = new Set<string>();
 
   for (const [, groupRows] of groups) {
     const first = groupRows[0];
     if (!first) continue;
-    if (first.wallet_type === 'ON_CHAIN') {
-      onChainRequests.push({ network: first.network as 'ETH' | 'BSC', address: first.contract_address });
+    if (first.wallet_type === "ON_CHAIN") {
+      onChainRequests.push({
+        network: first.network as "ETH" | "BSC",
+        address: first.contract_address,
+      });
     } else if (first.binance_symbol) {
       cexSymbolsSet.add(first.binance_symbol);
     }
@@ -267,7 +270,7 @@ export async function getPortfolioSummary(
     if (!first) continue;
     let priceResult: PriceResult;
 
-    if (first.wallet_type === 'ON_CHAIN') {
+    if (first.wallet_type === "ON_CHAIN") {
       const key = `onchain:${first.network.toLowerCase()}:${first.contract_address.toLowerCase()}`;
       priceResult = priceMap.get(key) ?? { priceUnavailable: true };
     } else {
@@ -325,21 +328,22 @@ export async function getTokenDetail(
   contractAddress: string,
   network: TokenNetwork,
   walletId?: string,
+  userId?: string,
 ): Promise<TokenDetail> {
   // 1. Resolve token → 404 if absent
   const token = await findByContractAddress(pool, contractAddress, network);
   if (!token) {
     throw new NotFoundError(
       `Token '${contractAddress}' on network '${network}' not found`,
-      'TOKEN_NOT_FOUND',
+      "TOKEN_NOT_FOUND",
     );
   }
 
-  const isCex = network === 'CEX_BINANCE';
+  const isCex = network === "CEX_BINANCE";
 
   // 2. Query OPEN positions for this token (optional wallet filter for ON_CHAIN)
   const posParams: unknown[] = [token.id];
-  let walletClause = '';
+  let walletClause = "";
   if (!isCex && walletId) {
     posParams.push(walletId);
     walletClause = `AND p.wallet_id = $${String(posParams.length)}`;
@@ -369,37 +373,70 @@ export async function getTokenDetail(
     priceResult = pm.get(key) ?? { priceUnavailable: true };
   }
 
-  const currentPrice = 'priceUsd' in priceResult ? priceResult.priceUsd : null;
+  const currentPrice = "priceUsd" in priceResult ? priceResult.priceUsd : null;
 
   // 4. Build aggregated position row (null when no OPEN positions)
   const positionRow = posRows.length > 0 ? buildPortfolioRow(posRows, priceResult) : null;
 
-  // 5. Fetch transactions linked to these positions
-  const positionIds = posRows.map((r) => r.position_id);
-  const txResult = await pool.query<TxRow>(
-    `SELECT id, wallet_id, token_id, position_id, type, source,
-            block_timestamp, amount, price_usd, cost_source,
-            tx_hash, cex_trade_id, related_tx_id
-       FROM transactions
-      WHERE token_id = $1
-        AND position_id = ANY($2::uuid[])
-      ORDER BY block_timestamp DESC
+  // 5. Fetch transactions for this token
+  //    When walletId is provided → filter by that wallet.
+  //    When walletId is absent  → filter by user_id via wallets join so closed-cycle
+  //    transactions are still visible even when there is no OPEN position.
+  const txParams: unknown[] = [token.id];
+  let txFilter = "";
+  if (walletId) {
+    txParams.push(walletId);
+    txFilter = `AND t.wallet_id = $${String(txParams.length)}`;
+  } else if (userId) {
+    txParams.push(userId);
+    txFilter = `AND w.user_id = $${String(txParams.length)}`;
+  } else {
+    // Fallback: only transactions linked to currently-open positions
+    const positionIds = posRows.map((r) => r.position_id);
+    txParams.push(positionIds);
+    txFilter = `AND t.position_id = ANY($${String(txParams.length)}::uuid[])`;
+  }
+
+  const txResult = await pool.query<
+    TxRow & { position_wac: string | null; position_status: string | null }
+  >(
+    `SELECT t.id, t.wallet_id, t.token_id, t.position_id, t.type, t.source,
+            t.block_timestamp, t.amount, t.price_usd, t.cost_source,
+            t.tx_hash, t.cex_trade_id, t.related_tx_id,
+            p.wac AS position_wac, p.status AS position_status
+       FROM transactions t
+       JOIN wallets w ON w.id = t.wallet_id
+       LEFT JOIN positions p ON p.id = t.position_id
+      WHERE t.token_id = $1
+        ${txFilter}
+      ORDER BY t.block_timestamp DESC
       LIMIT 1000`,
-    [token.id, positionIds],
+    txParams,
   );
 
   // 6. Enrich each transaction with per-lot P&L
   const transactions = txResult.rows.map((tx) => {
     const ts =
-      tx.block_timestamp instanceof Date
-        ? tx.block_timestamp.toISOString()
-        : tx.block_timestamp;
+      tx.block_timestamp instanceof Date ? tx.block_timestamp.toISOString() : tx.block_timestamp;
 
     // Derive costInheritedFrom for INHERITED rows.
     // V1 rule: BINANCE source → 'BINANCE', else → 'ONCHAIN'
-    let costInheritedFrom: 'ONCHAIN' | 'BINANCE' | null = null;
-    if (tx.cost_source === 'INHERITED') {
-      costInheritedFrom = tx.source === 'BINANCE' ? 'BINANCE' : 'ONCHAIN';
+    let costInheritedFrom: "ONCHAIN" | "BINANCE" | null = null;
+    if (tx.cost_source === "INHERITED") {
+      costInheritedFrom = tx.source === "BINANCE" ? "BINANCE" : "ONCHAIN";
+    }
+
+    // For closed positions, compute realized P&L using position WAC
+    // For open positions, compute unrealized P&L using current market price
+    const isClosedPosition = tx.position_status === "CLOSED";
+    const wac = tx.position_wac;
+    let pnl;
+    if (isClosedPosition && wac !== null) {
+      // Realized P&L for closed cycles: (price - WAC) * amount
+      pnl = computePnl(tx.type, tx.price_usd ?? null, wac, tx.amount);
+    } else {
+      // Unrealized P&L for open positions: (currentPrice - price) * amount
+      pnl = computePnl(tx.type, tx.price_usd ?? null, currentPrice, tx.amount);
     }
 
     return {
@@ -417,7 +454,7 @@ export async function getTokenDetail(
       cexTradeId: tx.cex_trade_id ?? null,
       relatedTxId: tx.related_tx_id ?? null,
       costInheritedFrom,
-      pnl: computePnl(tx.type, tx.price_usd ?? null, currentPrice, tx.amount),
+      pnl,
     };
   });
 
@@ -434,6 +471,8 @@ export async function getTokenDetail(
     },
     position: positionRow,
     transactions,
+    currentPrice,
+    priceUnavailable: "priceUnavailable" in priceResult ? true : undefined,
   };
 }
 
@@ -452,13 +491,13 @@ export async function getPositionHistory(
   if (!token) {
     throw new NotFoundError(
       `Token '${contractAddress}' on network '${network}' not found`,
-      'TOKEN_NOT_FOUND',
+      "TOKEN_NOT_FOUND",
     );
   }
 
-  const isCex = network === 'CEX_BINANCE';
+  const isCex = network === "CEX_BINANCE";
   const params: unknown[] = [token.id];
-  let walletClause = '';
+  let walletClause = "";
   if (!isCex && walletId) {
     params.push(walletId);
     walletClause = `AND wallet_id = $${String(params.length)}`;
@@ -466,12 +505,13 @@ export async function getPositionHistory(
 
   // 2. Query CLOSED positions ordered by cycle_number ASC
   const result = await pool.query<{
+    position_id: string;
     cycle_number: number;
     opened_at: Date | string;
     closed_at: Date | string;
     realized_pnl_usd: string;
   }>(
-    `SELECT cycle_number, opened_at, closed_at, realized_pnl_usd
+    `SELECT id AS position_id, cycle_number, opened_at, closed_at, realized_pnl_usd
        FROM positions
       WHERE token_id = $1
         AND status = 'CLOSED'
@@ -480,13 +520,56 @@ export async function getPositionHistory(
     params,
   );
 
-  // 3. Map to PositionHistoryEntry
-  return result.rows.map((r) => ({
-    cycleNumber: r.cycle_number,
-    openedAt: r.opened_at instanceof Date ? r.opened_at.toISOString() : r.opened_at,
-    closedAt: r.closed_at instanceof Date ? r.closed_at.toISOString() : r.closed_at,
-    realizedPnlUsd: r.realized_pnl_usd,
-  }));
+  // 3. Derive realized P&L from transaction sums (cost_basis is 0 for closed cycles)
+  const positionIds = result.rows.map((r) => r.position_id);
+  const txTotals =
+    positionIds.length > 0
+      ? await pool.query<{
+          position_id: string;
+          tx_total_cost: string;
+          tx_total_proceeds: string;
+        }>(
+          `SELECT
+           position_id,
+           COALESCE(SUM(
+             CASE WHEN type IN ('BUY','SWAP_IN','TRANSFER_IN')
+                  THEN amount * COALESCE(price_usd, 0)
+                  ELSE 0
+             END
+           ), 0) AS tx_total_cost,
+           COALESCE(SUM(
+             CASE WHEN type IN ('SELL','SWAP_OUT','TRANSFER_OUT')
+                  THEN amount * COALESCE(price_usd, 0)
+                  ELSE 0
+             END
+           ), 0) AS tx_total_proceeds
+         FROM transactions
+         WHERE position_id = ANY($1::uuid[])
+         GROUP BY position_id`,
+          [positionIds],
+        )
+      : { rows: [] };
+
+  const txTotalsMap = new Map(
+    txTotals.rows.map((r) => [
+      r.position_id,
+      { cost: toDecimal(r.tx_total_cost), proceeds: toDecimal(r.tx_total_proceeds) },
+    ]),
+  );
+
+  // 4. Map to PositionHistoryEntry
+  return result.rows.map((r) => {
+    const txTotal = txTotalsMap.get(r.position_id);
+    const cost = txTotal?.cost ?? ZERO;
+    const proceeds = txTotal?.proceeds ?? ZERO;
+    const realizedPnl = proceeds.minus(cost);
+    return {
+      cycleNumber: r.cycle_number,
+      openedAt: r.opened_at instanceof Date ? r.opened_at.toISOString() : r.opened_at,
+      closedAt: r.closed_at instanceof Date ? r.closed_at.toISOString() : r.closed_at,
+      realizedPnlUsd: roundToStorage(realizedPnl),
+    };
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -556,9 +639,49 @@ export async function getClosedPositions(
      FROM positions p
      JOIN tokens  t ON t.id = p.token_id
      JOIN wallets w ON w.id = p.wallet_id
-     WHERE ${clauses.join(' AND ')}
+     WHERE ${clauses.join(" AND ")}
      ORDER BY t.symbol ASC, t.network ASC, p.closed_at DESC`,
     params,
+  );
+
+  // Fetch transaction totals (cost & proceeds) for all returned positions.
+  // We do this because cost_basis on a closed position is 0
+  // (WAC × 0 balance), so the historic cycle cost must be derived
+  // from the raw transaction rows.
+  const positionIds = result.rows.map((r) => r.position_id);
+  const txTotals =
+    positionIds.length > 0
+      ? await pool.query<{
+          position_id: string;
+          tx_total_cost: string;
+          tx_total_proceeds: string;
+        }>(
+          `SELECT
+           position_id,
+           COALESCE(SUM(
+             CASE WHEN type IN ('BUY','SWAP_IN','TRANSFER_IN')
+                  THEN amount * COALESCE(price_usd, 0)
+                  ELSE 0
+             END
+           ), 0) AS tx_total_cost,
+           COALESCE(SUM(
+             CASE WHEN type IN ('SELL','SWAP_OUT','TRANSFER_OUT')
+                  THEN amount * COALESCE(price_usd, 0)
+                  ELSE 0
+             END
+           ), 0) AS tx_total_proceeds
+         FROM transactions
+         WHERE position_id = ANY($1::uuid[])
+         GROUP BY position_id`,
+          [positionIds],
+        )
+      : { rows: [] };
+
+  const txTotalsMap = new Map(
+    txTotals.rows.map((r) => [
+      r.position_id,
+      { cost: toDecimal(r.tx_total_cost), proceeds: toDecimal(r.tx_total_proceeds) },
+    ]),
   );
 
   // Group by token_id
@@ -583,9 +706,12 @@ export async function getClosedPositions(
     const cycles: ClosedCycle[] = [];
 
     for (const row of rows) {
-      const costBasis = toDecimal(row.cost_basis);
-      const realizedPnl = toDecimal(row.realized_pnl_usd);
-      const totalProceeds = costBasis.plus(realizedPnl);
+      // Use transaction-derived totals when available; fallback to the
+      // stored cost_basis (non-zero for open positions, zero for closed).
+      const txTotal = txTotalsMap.get(row.position_id);
+      const costBasis = txTotal?.cost ?? toDecimal(row.cost_basis);
+      const proceeds = txTotal?.proceeds ?? ZERO;
+      const realizedPnl = proceeds.minus(costBasis);
       const pnlPct = costBasis.isZero()
         ? null
         : roundToStorage(realizedPnl.div(costBasis).times(100));
@@ -595,11 +721,13 @@ export async function getClosedPositions(
         cycleNumber: row.cycle_number,
         walletId: row.wallet_id,
         walletLabel: row.wallet_label,
-        openedAt: row.opened_at instanceof Date ? row.opened_at.toISOString() : String(row.opened_at),
-        closedAt: row.closed_at instanceof Date ? row.closed_at.toISOString() : String(row.closed_at),
+        openedAt:
+          row.opened_at instanceof Date ? row.opened_at.toISOString() : String(row.opened_at),
+        closedAt:
+          row.closed_at instanceof Date ? row.closed_at.toISOString() : String(row.closed_at),
         totalCostUsd: roundToStorage(costBasis),
-        totalProceedsUsd: roundToStorage(totalProceeds),
-        realizedPnlUsd: row.realized_pnl_usd,
+        totalProceedsUsd: roundToStorage(proceeds),
+        realizedPnlUsd: roundToStorage(realizedPnl),
         realizedPnlPct: pnlPct,
       });
     }

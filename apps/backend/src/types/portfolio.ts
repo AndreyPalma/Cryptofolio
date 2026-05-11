@@ -1,14 +1,14 @@
 // Tipos de dominio para portfolio — US-007
 
-import { z } from 'zod';
-import { NETWORKS, TRANSACTION_TYPES, TRANSACTION_SOURCES, COST_SOURCES } from '../db/types.js';
+import { z } from "zod";
+import { NETWORKS, TRANSACTION_TYPES, TRANSACTION_SOURCES, COST_SOURCES } from "../db/types.js";
 
 // ─── Network / SourceType ─────────────────────────────────────────────────────
 
 export const TokenNetworkSchema = z.enum(NETWORKS);
 export type TokenNetwork = z.infer<typeof TokenNetworkSchema>;
 
-export const TokenSourceTypeSchema = z.enum(['ON_CHAIN', 'CEX'] as const);
+export const TokenSourceTypeSchema = z.enum(["ON_CHAIN", "CEX"] as const);
 export type TokenSourceType = z.infer<typeof TokenSourceTypeSchema>;
 
 // ─── Wallet breakdown ─────────────────────────────────────────────────────────
@@ -57,18 +57,18 @@ export type PortfolioSummary = z.infer<typeof PortfolioSummarySchema>;
 // ─── Per-lot P&L (discriminated union) ───────────────────────────────────────
 
 export const InboundPnlSchema = z.object({
-  kind: z.literal('INBOUND'),
+  kind: z.literal("INBOUND"),
   lotPnlUsd: z.string().nullable(),
   lotPnlPct: z.string().nullable(),
 });
 
 export const OutboundPnlSchema = z.object({
-  kind: z.literal('OUTBOUND'),
-  displayAs: z.literal('Sold/Out'),
+  kind: z.literal("OUTBOUND"),
+  displayAs: z.literal("Sold/Out"),
   realizedPnlUsd: z.string().nullable(),
 });
 
-export const PnlInfoSchema = z.discriminatedUnion('kind', [InboundPnlSchema, OutboundPnlSchema]);
+export const PnlInfoSchema = z.discriminatedUnion("kind", [InboundPnlSchema, OutboundPnlSchema]);
 export type PnlInfo = z.infer<typeof PnlInfoSchema>;
 
 // ─── Transaction with per-lot P&L enrichment ─────────────────────────────────
@@ -87,7 +87,7 @@ export const TransactionWithPnlSchema = z.object({
   txHash: z.string().nullable(),
   cexTradeId: z.string().nullable(),
   relatedTxId: z.string().nullable(),
-  costInheritedFrom: z.enum(['ONCHAIN', 'BINANCE']).nullable(),
+  costInheritedFrom: z.enum(["ONCHAIN", "BINANCE"]).nullable(),
   pnl: PnlInfoSchema,
 });
 export type TransactionWithPnl = z.infer<typeof TransactionWithPnlSchema>;
@@ -107,6 +107,7 @@ export const TokenDetailSchema = z.object({
   }),
   position: TokenPortfolioRowSchema.nullable(),
   transactions: z.array(TransactionWithPnlSchema),
+  currentPrice: z.string().nullable(),
   priceUnavailable: z.boolean().optional(),
 });
 export type TokenDetail = z.infer<typeof TokenDetailSchema>;
@@ -161,6 +162,4 @@ export type ClosedPositionsResponse = z.infer<typeof ClosedPositionsResponseSche
 
 // ─── PriceService result type ─────────────────────────────────────────────────
 
-export type PriceResult =
-  | { readonly priceUsd: string }
-  | { readonly priceUnavailable: true };
+export type PriceResult = { readonly priceUsd: string } | { readonly priceUnavailable: true };

@@ -92,9 +92,7 @@ function CycleCard({
           <span
             className={cn(
               "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold",
-              active
-                ? "bg-indigo-500/20 text-indigo-200"
-                : "bg-gray-800 text-gray-300",
+              active ? "bg-indigo-500/20 text-indigo-200" : "bg-gray-800 text-gray-300",
             )}
           >
             {statusLabel}
@@ -102,9 +100,7 @@ function CycleCard({
         </div>
 
         <div className="text-right">
-          <p className="text-xs uppercase tracking-wide text-gray-500">
-            {pnlLabel}
-          </p>
+          <p className="text-xs uppercase tracking-wide text-gray-500">{pnlLabel}</p>
           <div className="mt-1 flex items-center justify-end gap-3 text-sm">
             <PnlDisplay value={pnlUsd} kind="usd" />
             <PnlDisplay value={pnlPct} kind="pct" />
@@ -141,9 +137,8 @@ export function PositionCyclesSection({
           </p>
         </div>
         <span className="rounded-full bg-gray-800 px-3 py-1 text-xs font-semibold text-gray-300">
-          {closedCycles.length} ciclo{closedCycles.length !== 1 ? "s" : ""}
-          {" "}
-          cerrado{closedCycles.length !== 1 ? "s" : ""}
+          {closedCycles.length} ciclo{closedCycles.length !== 1 ? "s" : ""} cerrado
+          {closedCycles.length !== 1 ? "s" : ""}
         </span>
       </div>
 
@@ -196,7 +191,7 @@ export function PositionCyclesSection({
               pnlPct={cycle.realizedPnlPct}
               walletLabel={cycle.walletLabel}
               statusLabel="Cerrado"
-              proceedsLabel="Proceeds total"
+              proceedsLabel="Ingresos por venta"
               pnlLabel="P&L realizado"
             />
           ))}

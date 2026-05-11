@@ -1,14 +1,19 @@
 // Portfolio routes — US-007, US-012
 
-import type { FastifyPluginAsync } from 'fastify';
-import { z } from 'zod';
-import { getPortfolioSummary, getTokenDetail, getPositionHistory, getClosedPositions } from '../services/portfolio.js';
-import { createPriceService } from '../services/price.js';
-import { TokenNetworkSchema } from '../types/portfolio.js';
-import { BalanceValidatorService } from '../services/balance-validator.js';
-import { createBinanceApiClient } from '../sync/clients/binance-api.js';
-import { NotFoundError } from '../services/errors.js';
-import { pool } from '../db/pool.js';
+import type { FastifyPluginAsync } from "fastify";
+import { z } from "zod";
+import {
+  getPortfolioSummary,
+  getTokenDetail,
+  getPositionHistory,
+  getClosedPositions,
+} from "../services/portfolio.js";
+import { createPriceService } from "../services/price.js";
+import { TokenNetworkSchema } from "../types/portfolio.js";
+import { BalanceValidatorService } from "../services/balance-validator.js";
+import { createBinanceApiClient } from "../sync/clients/binance-api.js";
+import { NotFoundError } from "../services/errors.js";
+import { pool } from "../db/pool.js";
 
 const TokenParamsSchema = z.object({
   contractAddress: z.string().min(1),
@@ -22,8 +27,14 @@ const TokenDetailQuerySchema = z.object({
 const ClosedPositionsQuerySchema = z.object({
   walletId: z.string().optional(),
   network: TokenNetworkSchema.optional(),
-  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  from: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+  to: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
 });
 
 export const portfolioRoutes: FastifyPluginAsync = async (fastify) => {
@@ -31,34 +42,36 @@ export const portfolioRoutes: FastifyPluginAsync = async (fastify) => {
   const priceService = createPriceService(fastify.log);
 
   // GET /api/portfolio
-  fastify.get('/', async (_req, reply) => {
+  fastify.get("/", async (_req, reply) => {
     const summary = await getPortfolioSummary(pool, priceService);
     return reply.status(200).send(summary);
   });
 
   // GET /api/portfolio/closed — US-017
-  fastify.get('/closed', async (req, reply) => {
+  fastify.get("/closed", async (req, reply) => {
     const query = ClosedPositionsQuerySchema.parse(req.query);
     const result = await getClosedPositions(pool, query);
     return reply.status(200).send(result);
   });
 
   // GET /api/portfolio/token/:contractAddress/:network
-  fastify.get('/token/:contractAddress/:network', async (req, reply) => {
+  fastify.get("/token/:contractAddress/:network", async (req, reply) => {
     const params = TokenParamsSchema.parse(req.params);
     const query = TokenDetailQuerySchema.parse(req.query);
+    const userId: string = (req.user as { sub?: string } | undefined)?.sub ?? "unknown";
     const detail = await getTokenDetail(
       pool,
       priceService,
       params.contractAddress,
       params.network,
       query.wallet_id,
+      userId,
     );
     return reply.status(200).send(detail);
   });
 
   // GET /api/portfolio/token/:contractAddress/:network/history
-  fastify.get('/token/:contractAddress/:network/history', async (req, reply) => {
+  fastify.get("/token/:contractAddress/:network/history", async (req, reply) => {
     const params = TokenParamsSchema.parse(req.params);
     const query = TokenDetailQuerySchema.parse(req.query);
     const cycles = await getPositionHistory(
@@ -71,7 +84,7 @@ export const portfolioRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   // GET /api/portfolio/validate-snapshot — US-012 A7
-  fastify.get('/validate-snapshot', async (req, reply) => {
+  fastify.get("/validate-snapshot", async (req, reply) => {
     // Check API keys configured
     const apiKey = process.env.BINANCE_API_KEY?.trim();
     const secretKey = process.env.BINANCE_SECRET_KEY?.trim();
@@ -79,24 +92,40 @@ export const portfolioRoutes: FastifyPluginAsync = async (fastify) => {
     if (!apiKey || !secretKey) {
       return reply.status(400).send({
         statusCode: 400,
-        error: 'BINANCE_NOT_CONFIGURED',
-        message: 'Binance API keys not configured',
+        error: "BINANCE_NOT_CONFIGURED",
+        message: "Binance API keys not configured",
       });
     }
 
-    const userId: string = (req.user as { sub?: string } | undefined)?.sub ?? 'unknown';
+    const userId: string = (req.user as { sub?: string } | undefined)?.sub ?? "unknown";
 
     const silentLog = {
-      warn: () => { /* noop */ },
-      error: () => { /* noop */ },
-      info: () => { /* noop */ },
-      debug: () => { /* noop */ },
-      trace: () => { /* noop */ },
-      fatal: () => { /* noop */ },
-      child: function () { return this; },
-      level: 'silent',
-      silent: () => { /* noop */ },
-    } as unknown as import('fastify').FastifyBaseLogger;
+      warn: () => {
+        /* noop */
+      },
+      error: () => {
+        /* noop */
+      },
+      info: () => {
+        /* noop */
+      },
+      debug: () => {
+        /* noop */
+      },
+      trace: () => {
+        /* noop */
+      },
+      fatal: () => {
+        /* noop */
+      },
+      child: function () {
+        return this;
+      },
+      level: "silent",
+      silent: () => {
+        /* noop */
+      },
+    } as unknown as import("fastify").FastifyBaseLogger;
 
     const binanceClient = createBinanceApiClient({ apiKey, secretKey, log: silentLog });
     const validatorService = new BalanceValidatorService(pool, binanceClient);
@@ -108,15 +137,15 @@ export const portfolioRoutes: FastifyPluginAsync = async (fastify) => {
       if (err instanceof NotFoundError) {
         return reply.status(400).send({
           statusCode: 400,
-          error: 'NO_CEX_WALLET',
-          message: 'No Binance wallet configured',
+          error: "NO_CEX_WALLET",
+          message: "No Binance wallet configured",
         });
       }
       // Binance API errors → 502
       return reply.status(502).send({
         statusCode: 502,
-        error: 'BINANCE_UNAVAILABLE',
-        message: err instanceof Error ? err.message : 'Binance unreachable',
+        error: "BINANCE_UNAVAILABLE",
+        message: err instanceof Error ? err.message : "Binance unreachable",
       });
     }
   });

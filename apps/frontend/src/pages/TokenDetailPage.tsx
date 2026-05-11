@@ -49,16 +49,8 @@ export function TokenDetailPage() {
     data && normalizedNetwork
       ? (closedPositionsData?.byToken.find(
           (token) =>
-            getTokenIdentityKey(
-              token.network,
-              token.contractAddress,
-              token.symbol,
-            ) ===
-            getTokenIdentityKey(
-              data.token.network,
-              data.token.contractAddress,
-              data.token.symbol,
-            ),
+            getTokenIdentityKey(token.network, token.contractAddress, token.symbol) ===
+            getTokenIdentityKey(data.token.network, data.token.contractAddress, data.token.symbol),
         ) ?? null)
       : null;
 
@@ -82,12 +74,8 @@ export function TokenDetailPage() {
           openedAt: activeCycleOpenedAt,
           totalCostUsd: data.position.totalCostBasis,
           totalCurrentValueUsd: data.position.totalCurrentValue,
-          unrealizedPnlUsd: data.position.priceUnavailable
-            ? null
-            : data.position.pnlUsd,
-          unrealizedPnlPct: data.position.priceUnavailable
-            ? null
-            : data.position.pnlPct,
+          unrealizedPnlUsd: data.position.priceUnavailable ? null : data.position.pnlUsd,
+          unrealizedPnlPct: data.position.priceUnavailable ? null : data.position.pnlPct,
           walletLabel:
             selectedWalletId !== undefined
               ? (data.position.walletBreakdown.find(
@@ -102,10 +90,7 @@ export function TokenDetailPage() {
   if (loading && data === null) {
     return (
       <main className="min-h-screen bg-gray-950 p-6 text-white">
-        <Link
-          to="/"
-          className="mb-4 inline-block text-sm text-gray-400 hover:text-white"
-        >
+        <Link to="/" className="mb-4 inline-block text-sm text-gray-400 hover:text-white">
           ← Portfolio
         </Link>
         <p className="mt-8 text-center text-gray-400">Loading…</p>
@@ -115,10 +100,7 @@ export function TokenDetailPage() {
 
   return (
     <main className="min-h-screen bg-gray-950 p-6 text-white">
-      <Link
-        to="/"
-        className="mb-4 inline-block text-sm text-gray-400 hover:text-white"
-      >
+      <Link to="/" className="mb-4 inline-block text-sm text-gray-400 hover:text-white">
         ← Portfolio
       </Link>
 
@@ -139,7 +121,13 @@ export function TokenDetailPage() {
           />
 
           <div className="mt-6">
-            <TokenStatsCards position={data.position} />
+            <TokenStatsCards
+              position={data.position}
+              token={data.token}
+              transactionsCount={data.transactions.length}
+              currentPrice={data.currentPrice}
+              priceUnavailable={data.priceUnavailable}
+            />
           </div>
 
           <div className="mt-6">

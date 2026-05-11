@@ -215,8 +215,17 @@ export class OnChainSyncService {
         let priceUsd: string | null = null;
         let costSource: "MARKET" | "INHERITED" | "MANUAL" | null = null;
 
+        // Use historical price at transaction time for BUY/SWAP_IN.
+        // For SELL/SWAP_OUT/TRANSFER_OUT we also fetch historical so P&L
+        // is computed against the price at the moment of the transaction.
+        const txTimestampSec = Math.floor(tx.blockTimestamp.getTime() / 1000);
+
         if (tx.type === "BUY" || tx.type === "SWAP_IN") {
-          const r = await this.deps.priceService.getOnChainPrice(network, tokenContract);
+          const r = await this.deps.priceService.getHistoricalPrice(
+            network,
+            tokenContract,
+            txTimestampSec,
+          );
           priceUsd = "priceUsd" in r ? r.priceUsd : null;
           costSource = "MARKET";
         } else if (tx.type === "TRANSFER_IN") {
@@ -231,8 +240,12 @@ export class OnChainSyncService {
             pgc.release();
           }
         } else {
-          // SELL, SWAP_OUT, TRANSFER_OUT — live price for P&L (optional)
-          const r = await this.deps.priceService.getOnChainPrice(network, tokenContract);
+          // SELL, SWAP_OUT, TRANSFER_OUT — historical price at transaction time
+          const r = await this.deps.priceService.getHistoricalPrice(
+            network,
+            tokenContract,
+            txTimestampSec,
+          );
           priceUsd = "priceUsd" in r ? r.priceUsd : null;
           costSource = null;
         }

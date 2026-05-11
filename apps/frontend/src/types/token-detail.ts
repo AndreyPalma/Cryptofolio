@@ -107,6 +107,7 @@ export interface TokenDetail {
   token: TokenInfo;
   position: PositionStats | null;
   transactions: TransactionWithPnl[];
+  currentPrice: DecimalString | null;
   priceUnavailable?: boolean;
 }
 
