@@ -1,0 +1,379 @@
+{
+  "version": 2,
+  "project": "Alchemy On-Chain Sync Migration",
+  "overview": "Reemplazar los clientes Etherscan (ETH) y BSCTrace (BSC) por un único cliente Alchemy que cubre ambas redes con una sola API key y un solo método (alchemy_getAssetTransfers). BSCTrace ya hoy implementa una API estilo Alchemy (mismo body JSON-RPC, mismas categories, pageKey nativo) — la migración consolida ambos clientes en uno apuntando a los endpoints oficiales de Alchemy. Etherscan en cambio sí usa un patrón distinto (txlist/tokentx con offset=1000 + workaround startblock=last-1) que sí se elimina. La interfaz OnChainApiClient se mantiene como contrato público, pero internamente el nuevo cliente absorbe toda la paginación con pageKey y los loops externos de paginateNormal/paginateToken en OnChainSyncService se eliminan. La detección de SWAPs en classify.ts es por ROUTER ADDRESS (no por methodId — el PRD v1 lo decía mal), por lo que Alchemy — que no expone methodId — no afecta la detección. Se incluyen internal transactions (category 'internal') que hoy ningún cliente sincroniza. DefiLlama queda como única fuente de prices. Multi-chain (Base/Arbitrum/Polygon) NO entra en este scope. Frontend SÍ se toca: ApiKeysSection, SourceBadge, schemas, types y hooks tienen referencias hardcoded a ETHERSCAN/BSCTRACE que hay que reemplazar por ALCHEMY. Al cerrar la migración, el repo no debe contener residuos de Etherscan/BSCTrace fuera de openspec/changes/archive/ y este PRD. Todos los tests del módulo de sincronización se concentran en US-007 — las stories US-001..US-006 definen comportamiento esperado pero NO incluyen tests embebidos.",
+  "goals": [
+    "Reemplazar EtherscanClient y BSCTraceClient por un único AlchemyClient drop-in que satisface OnChainApiClient.",
+    "Reducir env vars: una sola ALCHEMY_API_KEY en lugar de ETHERSCAN_API_KEY + BSCTRACE_API_KEY.",
+    "Capturar internal transactions (transfers de ETH/BNB desde contratos) que hoy se pierden.",
+    "Simplificar paginación: el cliente absorbe toda la paginación con pageKey y devuelve el resultado completo; los loops externos en OnChainSyncService se eliminan.",
+    "Ampliar TRANSACTION_SOURCES y SERVICE_NAMES con 'ALCHEMY' sin remover los valores históricos en transactions (rows existentes con source='ETHERSCAN'/'BSCTRACE' son data legítima).",
+    "Actualizar la UI de Settings y SourceBadge para que el usuario configure una sola key Alchemy y vea la nueva fuente correctamente etiquetada.",
+    "Mantener idempotencia (ON CONFLICT DO NOTHING) y los wallet_sync_cursors existentes — re-sincronizar wallets ya migradas continúa desde su last_synced_block.",
+    "Eliminar al cierre TODO código, env vars, schemas, routes, hooks, components, docs y refs a Etherscan/BSCTrace en el código vivo (excepto archive/ y este PRD).",
+    "Concentrar la validación funcional en una única US dedicada a tests del módulo de sincronización con escenarios documentados uno a uno (US-007)."
+  ],
+  "nonGoals": [
+    "Soporte multi-chain más allá de ETH + BSC (Base, Arbitrum, Polygon, Optimism quedan para US futuros).",
+    "Reemplazar DefiLlama por Alchemy Prices API.",
+    "Resolver cost_source='MANUAL' automáticamente vía precios históricos de Alchemy.",
+    "Cambiar classify.ts, DEX_ROUTERS, cost-resolver o la semántica de prd.json v5.",
+    "Cambiar position-engine, WAC, cycles o cualquier cálculo de portfolio.",
+    "Webhooks Notify de Alchemy (ADDRESS_ACTIVITY) — la sync sigue por polling.",
+    "Reemplazar Binance sync ni ningún flow CEX.",
+    "Cambios en routes/sync.ts, routes/wallets.ts ni en cualquier flujo de portfolio.",
+    "Borrar las rows históricas en transactions con source='ETHERSCAN' o 'BSCTRACE' (son datos válidos).",
+    "Agregar tests fuera del módulo de sincronización — los tests de US-007 cubren solo el sync path (cliente + servicio + classify regresión + cost-resolver bajo source='ALCHEMY')."
+  ],
+  "successMetrics": [
+    "Una wallet ETH y una BSC se sincronizan con Alchemy y los rows insertados tienen source='ALCHEMY'.",
+    "Cero hits para 'etherscan'|'bsctrace'|'ETHERSCAN_API_KEY'|'BSCTRACE_API_KEY' (case-insensitive) en apps/, db/, packages/, openspec/specs/, render.yaml, CLAUDE.md, prd.json, .env.example al cerrar US-006.",
+    "Un único módulo de cliente on-chain (alchemy.ts) en apps/backend/src/sync/clients/ (además de binance-api.ts).",
+    "npm run typecheck y npm run lint pasan en todo momento de la migración.",
+    "US-007 ejecuta los ≥50 escenarios documentados y todos pasan. npm test pasa completo al cerrar US-007.",
+    "Re-sincronizar una wallet ya migrada NO inserta duplicados (idempotencia verificada por escenario D-1 en US-007)."
+  ],
+  "openQuestions": [
+    "Plan free de Alchemy: ~300M compute units/mes. Para uso single-user es suficiente — si una wallet con miles de txs se agota, documentar plan upgrade. Decisión pospuesta hasta observar uso real.",
+    "Internal txs van a aparecer como 'nuevas' en wallets ya sincronizadas — ¿se notifica al usuario en UI? Por defecto silencioso (no notificación)."
+  ],
+  "stack": {
+    "framework": "Fastify 5 + fastify-type-provider-zod + Zod 4 (backend); React 19 + react-router-dom v7 + Tailwind v4 + Vite 6 (frontend) — sin cambios de stack.",
+    "hosting": "Node 22 self-hosted (Render según render.yaml).",
+    "database": "PostgreSQL via node-pg-migrate — schema cambia solo para ampliar ENUMs.",
+    "auth": "Sin cambios."
+  },
+  "routes": [],
+  "uiNotes": [
+    "ApiKeysSection.tsx: hoy renderiza dos filas hardcoded (ETHERSCAN_API_KEY, BSCTRACE_API_KEY) más el grupo Binance. Pasa a renderizar una sola fila ALCHEMY_API_KEY más el grupo Binance.",
+    "SourceBadge.tsx: hoy mapea {ETHERSCAN, BSCTRACE, BINANCE, MANUAL} a un label y color. Agregar mapping para 'ALCHEMY' con label 'Alchemy' y color coherente con on-chain (mismo que ETHERSCAN/BSCTRACE actualmente). Las rows históricas con source='ETHERSCAN'/'BSCTRACE' deben seguir renderizándose correctamente con sus labels viejos.",
+    "El usuario debe poder testear la conectividad de la nueva ALCHEMY_API_KEY desde Settings con el mismo botón Test (badge 'Connected · Nms' o 'Failed: …').",
+    "No hay cambios de routing, layout, navegación, ni de prototipo (docs/prototipo/* queda intacto por convención del proyecto)."
+  ],
+  "dataModel": [
+    {
+      "entity": "transactions",
+      "fields": ["source"],
+      "notes": "transaction_source SQL ENUM se amplía a {ETHERSCAN, BSCTRACE, BINANCE, MANUAL, ALCHEMY} en US-003. ETHERSCAN y BSCTRACE NO se remueven nunca — preservan rows históricos. Rows nuevos on-chain insertan source='ALCHEMY'."
+    },
+    {
+      "entity": "transactions (UNIQUE constraints)",
+      "fields": [],
+      "notes": "La constraint actual UNIQUE(tx_hash, tx_log_index) WHERE tx_hash IS NOT NULL AND source IN ('ETHERSCAN','BSCTRACE') debe AMPLIARSE para incluir 'ALCHEMY'. Nueva versión: source IN ('ETHERSCAN','BSCTRACE','ALCHEMY'). Una nueva migración SQL en db/migrations/ DROP+CREATE el índice/constraint manteniendo el WHERE filtrado."
+    },
+    {
+      "entity": "wallet_sync_cursors",
+      "fields": [],
+      "notes": "Sin cambios. wallet_id/operation/last_synced_block respetados — al primer sync con Alchemy se arranca desde last_synced_block + 1."
+    },
+    {
+      "entity": "api_credentials",
+      "fields": ["service_name"],
+      "notes": "service_name SQL ENUM se amplía a incluir 'ALCHEMY' en US-003. En US-006 se REMUEVEN ETHERSCAN y BSCTRACE del enum (no hay rows históricos en api_credentials que dependan — distinto de transactions). enums.test.ts valida la coherencia entre db/enums.ts y el .sql."
+    },
+    {
+      "entity": "tokens",
+      "fields": [],
+      "notes": "Sin cambios. Native pseudo-addresses 0xeee...eee (ETH) y 0xbb4c...95c (BSC) siguen siendo la convención de DefiLlama y se usan para crear filas de ETH/BNB nativos."
+    },
+    {
+      "entity": "positions",
+      "fields": [],
+      "notes": "Sin cambios. WAC, cycles y realized_pnl_usd no se tocan."
+    }
+  ],
+  "importFormat": {
+    "description": "alchemy_getAssetTransfers contract: POST a https://eth-mainnet.g.alchemy.com/v2/{API_KEY} (o https://bnb-mainnet.g.alchemy.com/v2/{API_KEY}) con body JSON-RPC: { jsonrpc:'2.0', id:1, method:'alchemy_getAssetTransfers', params:[{ fromBlock, toBlock, fromAddress|toAddress, category, withMetadata:true, order:'asc', maxCount:'0x3e8', excludeZeroValue:true, pageKey? }] }. Respuesta: { result: { transfers: [...], pageKey?: string } }. Cada transfer incluye: hash (string), blockNum (hex string), uniqueId (string opaque), from, to, value (DECIMAL FLOAT — pierde precisión, NO USAR), asset, category, rawContract { address (string|null), value (HEX string como '0x16345785d8a0000' — autoritativo), decimal (HEX string como '0x12' — parsear con parseInt(_,16)) }, metadata { blockTimestamp (ISO 8601) }. NO devuelve methodId, NO devuelve transactionIndex, NO devuelve logIndex, NO devuelve gasUsed, NO devuelve isError (las txs fallidas son excluidas por Alchemy del resultado).",
+    "example": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "alchemy_getAssetTransfers",
+        "params": [
+          {
+            "fromBlock": "0x12a05f200",
+            "toBlock": "latest",
+            "fromAddress": "0xabc...",
+            "category": ["external", "internal", "erc20"],
+            "withMetadata": true,
+            "order": "asc",
+            "maxCount": "0x3e8",
+            "excludeZeroValue": true
+          }
+        ]
+      },
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+          "transfers": [
+            {
+              "uniqueId": "0xabc...:external:0",
+              "hash": "0xdeadbeef",
+              "blockNum": "0x12a05f3c1",
+              "from": "0xabc...",
+              "to": "0xdef...",
+              "value": 1.5,
+              "asset": "USDC",
+              "category": "erc20",
+              "rawContract": {
+                "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+                "value": "0x16345785d8a0000",
+                "decimal": "0x6"
+              },
+              "metadata": { "blockTimestamp": "2025-04-15T12:34:56.000Z" }
+            }
+          ],
+          "pageKey": "abc-cursor-opaque"
+        }
+      }
+    }
+  },
+  "rules": [
+    "AlchemyClient DEBE satisfacer la interfaz existente OnChainApiClient (fetchNormalTransactions + fetchTokenTransactions + assertConfigured + network). NO agregar métodos públicos nuevos al contrato.",
+    "AlchemyClient absorbe toda la paginación con pageKey internamente. Devuelve el resultado COMPLETO al servicio. Los loops externos paginateNormal/paginateToken en OnChainSyncService se ELIMINAN — el servicio llama una sola vez a fetchNormalTransactions y una sola vez a fetchTokenTransactions.",
+    "Por cada método, AlchemyClient hace DOS llamadas POST (fromAddress=wallet y toAddress=wallet) porque alchemy_getAssetTransfers NO acepta filtrar por una dirección única. Después mergea, dedupea por uniqueId, y ordena por (blockNumber, índice de aparición). La doble llamada se mantiene aunque haya múltiples páginas — cada lado paginates independientemente.",
+    "fetchNormalTransactions incluye categories ['external', 'internal']. Las internal txs son legítimas y se mapean igual que external.",
+    "fetchTokenTransactions incluye category ['erc20']. NFTs (erc721/erc1155) fuera de scope.",
+    "Mapeo de campos en Normalized*Tx — precisión obligatoria:\n  - value (uint256): SIEMPRE usar rawContract.value parseado de HEX → BigInt(hex).toString(). NUNCA usar el campo value top-level (es float, pierde precisión).\n  - decimals: parseInt(rawContract.decimal, 16) cuando rawContract.decimal no es null; si es null para natives, usar 18.\n  - blockNumber: parseInt(blockNum, 16).\n  - timeStamp: Math.floor(new Date(metadata.blockTimestamp).getTime() / 1000).\n  - transactionIndex: Alchemy NO lo devuelve → usar índice de aparición dentro del array de respuesta (idéntico a BSCTrace hoy). Documentar en el código.\n  - logIndex: Alchemy NO lo devuelve → usar índice de aparición. ON CONFLICT(tx_hash, tx_log_index) sigue funcionando porque tx_log_index se asigna en classify (0 para singles, 0/1 para swaps), no por el logIndex bruto.\n  - methodId: SIEMPRE undefined. Alchemy no devuelve input. NO afecta classify (que usa router address).\n  - isError: SIEMPRE '0'. Alchemy excluye fallidas.\n  - gasUsed: '0' (no disponible). No se usa en classify.\n  - from/to: lower-case.\n  - contractAddress (NormalizedTokenTx): rawContract.address.toLowerCase().\n  - tokenSymbol/tokenName: usar campo asset (Alchemy no provee name distinto).",
+    "Paginación: si la respuesta trae pageKey, siguiente request con ese pageKey hasta que la respuesta no traiga pageKey. Aplicar por separado a fromAddress-loop y toAddress-loop.",
+    "Retry: HTTP 429 o 5xx → 3 reintentos con delay 250ms, 500ms, 1000ms más jitter aleatorio en [0,250)ms. Al cuarto fallo, lanzar ExternalApiError('alchemy', cause_scrubbed).",
+    "Retry: errores JSON-RPC (HTTP 200 con campo 'error' en body) NO se reintentan — lanzar ExternalApiError directamente con code y message.",
+    "API key scrubbing: la URL completa contiene la key en el path (/v2/{KEY}). Toda URL que vaya a logs o a error.cause DEBE pasar por una función scrubAlchemyUrl que reemplace el segmento de la key por '***'.",
+    "Detección de SWAPs en classify.ts: NO se toca. La detección es por router address (SWAP_ROUTERS[network]) cruzada con from/to del normalTx O de algún tokenTx — no usa methodId. Como Alchemy no devuelve methodId, esto NO afecta detección.",
+    "DecomposedTransaction.source: el tipo Extract<TransactionSource, 'ETHERSCAN'|'BSCTRACE'> en classify.ts (5 ocurrencias: líneas 38, 95, 139, 230, 255) se AMPLÍA en US-003 a Extract<TransactionSource, 'ETHERSCAN'|'BSCTRACE'|'ALCHEMY'>. La factory en OnChainSyncService pasa 'ALCHEMY' para todas las wallets nuevas. En US-006 se REDUCE a Extract<TransactionSource, 'ALCHEMY'> (los rows históricos no se reclasifican).",
+    "OnChainSyncDeps en on-chain-sync.ts pasa de tener etherscanClient + bsctraceClient (2 campos) a un único onChainClientFactory: (network: 'ETH'|'BSC') => OnChainApiClient. El bootstrap del server (apps/backend/src/index.ts o donde se arme buildServer) instancia un único AlchemyClient por network y lo expone vía esta factory.",
+    "ENUMs SQL — política de cambios:\n  - transaction_source: AGREGAR 'ALCHEMY' en US-003. NUNCA remover 'ETHERSCAN'/'BSCTRACE'.\n  - service_name: AGREGAR 'ALCHEMY' en US-003. REMOVER 'ETHERSCAN' y 'BSCTRACE' en US-006 (no hay rows históricos en api_credentials que dependan).\n  - db/enums.ts mantiene sincronizado y db/enums.test.ts pasa.",
+    "Migración SQL: ALTER TYPE transaction_source ADD VALUE 'ALCHEMY' va en una migración up de US-003. La migración down NO remueve el valor (Postgres no soporta DROP VALUE de ENUM — documentar en comentario). El DROP+CREATE del UNIQUE constraint con el nuevo WHERE va en la misma migración.",
+    "API key store: la ALCHEMY_API_KEY vive en process.env (NO en api_credentials) — mismo patrón que ETHERSCAN_API_KEY/BSCTRACE_API_KEY hoy. El SERVICE_NAMES enum existe por consistencia con otros servicios, pero su uso real es para el endpoint /api/credentials/test/:service.",
+    "Frontend respecto a histórico: SourceBadge debe seguir renderizando rows con source='ETHERSCAN' y 'BSCTRACE' correctamente con sus labels viejos. Las rows nuevas usan 'ALCHEMY'. NO normalizar rows históricas a 'ALCHEMY'.",
+    "Cleanup final (US-006) — el repo no debe contener referencias activas a Etherscan/BSCTrace excepto en:\n  - openspec/changes/archive/** (historia congelada)\n  - .agents/tasks/prd-alchemy-onchain-sync.json (este PRD)\n  - Comentarios de migraciones SQL que documenten 'preservado para rows históricos'\n  - Rows en la tabla transactions (preservados como data válida)\n  - db/enums.ts → TRANSACTION_SOURCES sigue listando ETHERSCAN/BSCTRACE (preservados)\n  - Cualquier label de UI que renderice rows históricas (SourceBadge mappings)\n  - db/migrations.old/** (legacy histórico)",
+    "Quality gates en cada US de implementación: npm run typecheck && npm run lint. Los tests (npm test) corren solo en US-007.",
+    "Tests del módulo de sincronización están AISLADOS en US-007. Las US-001..US-006 NO incluyen tests embebidos — solo definen comportamiento esperado. La validación funcional completa pasa por US-007."
+  ],
+  "qualityGates": ["npm run typecheck", "npm run lint"],
+  "stories": [
+    {
+      "id": "US-001",
+      "title": "AlchemyClient: implementación drop-in del OnChainApiClient",
+      "status": "open",
+      "dependsOn": [],
+      "description": "Como desarrollador, quiero un nuevo cliente Alchemy que satisfaga la interfaz OnChainApiClient existente, soporte ETH y BSC vía un parámetro network, y absorba toda la paginación con pageKey internamente — para que el cliente sea un drop-in transparente para OnChainSyncService.",
+      "acceptanceCriteria": [
+        "Crear apps/backend/src/sync/clients/alchemy.ts exportando createAlchemyClient(opts: { apiKey: string; network: 'ETH' | 'BSC'; log: FastifyBaseLogger }): OnChainApiClient.",
+        "URL base por network: ETH → https://eth-mainnet.g.alchemy.com/v2/{apiKey}; BSC → https://bnb-mainnet.g.alchemy.com/v2/{apiKey}.",
+        "Función scrubAlchemyUrl(url) interna: reemplaza el segmento de la API key en el path por '***' antes de pasar al log o al cause de ExternalApiError.",
+        "assertConfigured() lanza ApiKeyMissingError('ALCHEMY_API_KEY') si apiKey es vacío.",
+        "fetchNormalTransactions(address, startBlock, endBlock) ejecuta DOS loops paginados independientes: uno con fromAddress=address, otro con toAddress=address. Cada loop hace POST JSON-RPC alchemy_getAssetTransfers con category=['external','internal'], withMetadata=true, order='asc', maxCount='0x3e8', excludeZeroValue=true, fromBlock/toBlock derivados de startBlock/endBlock en hex, y sigue paginando con pageKey hasta agotar.",
+        "fetchTokenTransactions(address, startBlock, endBlock) sigue el mismo patrón pero con category=['erc20'].",
+        "Después de obtener todos los transfers de los dos loops, mergea, dedupea por transfer.uniqueId, ordena por (blockNumber, índice-de-aparición) y mapea a NormalizedTx[] / NormalizedTokenTx[].",
+        "Mapeo a NormalizedTx: usar rawContract.value (HEX) → BigInt(hex).toString() para value. Si rawContract.address es null (native ETH/BNB), preservar como string vacío en contractAddress N/A (NormalizedTx no tiene contractAddress). blockNumber=parseInt(blockNum,16). timeStamp=Math.floor(new Date(metadata.blockTimestamp).getTime()/1000). transactionIndex=índice de aparición. methodId=undefined siempre. isError='0' siempre. gasUsed='0'. from/to en lower-case.",
+        "Mapeo a NormalizedTokenTx: contractAddress=rawContract.address.toLowerCase() (NUNCA null en category='erc20'); tokenSymbol=tokenName=asset; tokenDecimal=parseInt(rawContract.decimal,16); value=BigInt(rawContract.value).toString(); logIndex=índice de aparición; el resto igual que NormalizedTx.",
+        "Retry: en HTTP 429 o 5xx, hasta 3 reintentos con delays 250ms, 500ms, 1000ms más jitter aleatorio [0,250)ms. Al cuarto fallo lanzar ExternalApiError('alchemy', { status, url:scrubbed }).",
+        "Retry: en respuesta HTTP 200 con body.error definido, lanzar ExternalApiError('alchemy', { code: body.error.code, message: body.error.message }) sin reintentar.",
+        "NUNCA loguear la URL completa con API key. SIEMPRE pasarla por scrubAlchemyUrl antes de log.warn / log.error / error.cause.",
+        "Comportamiento esperado (ejemplo, NO test embebido): dado un wallet 0xabc con startBlock=100 y endBlock=200, fetchNormalTransactions hace 2 POSTs JSON-RPC (uno con fromAddress=0xabc y otro con toAddress=0xabc), espera los dos resultados, mergea, dedupea por uniqueId y retorna un array NormalizedTx[] ordenado ascendentemente por blockNumber.",
+        "Comportamiento esperado (caso negativo, NO test embebido): si apiKey es '' y se llama assertConfigured(), debe lanzar ApiKeyMissingError('ALCHEMY_API_KEY') antes de intentar cualquier fetch.",
+        "Quality gates: npm run typecheck && npm run lint pasan."
+      ]
+    },
+    {
+      "id": "US-002",
+      "title": "Env config: agregar ALCHEMY_API_KEY al EnvSchema",
+      "status": "open",
+      "dependsOn": ["US-001"],
+      "description": "Como desarrollador, quiero que ALCHEMY_API_KEY sea reconocido por el EnvSchema de Zod, esté documentado en .env.example y en render.yaml, y las variables viejas ETHERSCAN_API_KEY/BSCTRACE_API_KEY queden temporalmente opcionales — para que la transición sea atómica entre US-002 y US-006.",
+      "acceptanceCriteria": [
+        "apps/backend/src/env.ts: agregar ALCHEMY_API_KEY: z.string().min(1) al EnvSchema (required, no opcional).",
+        "Cambiar ETHERSCAN_API_KEY y BSCTRACE_API_KEY a z.string().optional() — serán removidas en US-006.",
+        ".env.example: agregar línea ALCHEMY_API_KEY=your-alchemy-api-key con comentario # Get a free key at https://dashboard.alchemy.com/. Mantener las dos viejas con comentario # Deprecated, removed after Alchemy migration (US-006).",
+        "render.yaml: si tiene envVars con ETHERSCAN_API_KEY y BSCTRACE_API_KEY, agregar ALCHEMY_API_KEY siguiendo el mismo patrón (sync: false para que se setee desde dashboard). Las viejas se removerán en US-006.",
+        "Comportamiento esperado (ejemplo): parseEnv() con un objeto que contiene ALCHEMY_API_KEY válido y SIN ETHERSCAN_API_KEY ni BSCTRACE_API_KEY no debe lanzar — son opcionales.",
+        "Comportamiento esperado (caso negativo): parseEnv() sin ALCHEMY_API_KEY debe lanzar ZodError con un issue en path ['ALCHEMY_API_KEY'].",
+        "Quality gates: npm run typecheck && npm run lint."
+      ]
+    },
+    {
+      "id": "US-003",
+      "title": "Wire AlchemyClient en backend + ampliar tipos, ENUMs y migración SQL",
+      "status": "open",
+      "dependsOn": ["US-001", "US-002"],
+      "description": "Como desarrollador, quiero refactorizar OnChainSyncService para usar AlchemyClient (vía factory por network), ampliar todos los tipos y ENUMs (TS y SQL) con 'ALCHEMY', y aplicar la migración SQL que extiende el UNIQUE constraint — para que la sync on-chain pase 100% por Alchemy con source='ALCHEMY' sin romper data histórica.",
+      "acceptanceCriteria": [
+        "Cambiar OnChainSyncDeps en apps/backend/src/services/on-chain-sync.ts: reemplazar los campos etherscanClient y bsctraceClient por un único onChainClientFactory: (network: 'ETH' | 'BSC') => OnChainApiClient.",
+        "En el método sync(): reemplazar la elección manual de cliente (línea ~90 actual: const apiClient = network === 'ETH' ? deps.etherscanClient : deps.bsctraceClient) por const apiClient = deps.onChainClientFactory(network).",
+        "Eliminar los métodos privados paginateNormal y paginateToken de OnChainSyncService. Reemplazar las llamadas internas en sync() por llamadas directas: const normalTxs = await apiClient.fetchNormalTransactions(walletAddress, wallet.last_synced_block + 1, MAX_BLOCK); const tokenTxs = await apiClient.fetchTokenTransactions(walletAddress, wallet.last_synced_block + 1, MAX_BLOCK). MAX_BLOCK queda como constante.",
+        "El cliente Alchemy ABSORBE toda la paginación (US-001) — el servicio no loopea más. Eliminar también la constante PAGE_SIZE de OnChainSyncService (queda residual).",
+        "Bootstrap del server (apps/backend/src/index.ts o donde se llame buildServer): construir UN solo AlchemyClient por network y pasar onChainClientFactory: (n) => n === 'ETH' ? alchemyEth : alchemyBsc al OnChainSyncService.",
+        "apps/backend/src/sync/clients/classify.ts: ampliar el tipo Extract<TransactionSource, 'ETHERSCAN' | 'BSCTRACE'> en las 5 ubicaciones (líneas 38, 95, 139, 230, 255) a Extract<TransactionSource, 'ETHERSCAN' | 'BSCTRACE' | 'ALCHEMY'>. Cambiar la línea que asigna source (~95): const source = network === 'ETH' ? 'ETHERSCAN' : 'BSCTRACE' por const source = 'ALCHEMY'.",
+        "apps/backend/src/db/types.ts: si TransactionSource es derivado de db/enums.ts, agregar 'ALCHEMY' a la lista. Si está hardcoded, ampliar el union literal.",
+        "db/enums.ts: agregar 'ALCHEMY' a TRANSACTION_SOURCES → ['ETHERSCAN','BSCTRACE','BINANCE','MANUAL','ALCHEMY']. Agregar 'ALCHEMY' a SERVICE_NAMES → ['ETHERSCAN','BSCTRACE','BINANCE_API_KEY','BINANCE_SECRET_KEY','TELEGRAM','ALCHEMY'].",
+        "db/enums.test.ts debe seguir pasando — el test valida que enums.ts coincide con los CREATE TYPE en el .sql. La migración nueva debe agregar los valores correspondientes.",
+        "Crear migración SQL nueva en db/migrations/ (ej. 0002_alchemy_sync_migration.sql). Up:\n  - ALTER TYPE transaction_source ADD VALUE IF NOT EXISTS 'ALCHEMY';\n  - ALTER TYPE service_name ADD VALUE IF NOT EXISTS 'ALCHEMY';\n  - DROP INDEX IF EXISTS <nombre actual del UNIQUE de transactions on-chain>;\n  - CREATE UNIQUE INDEX <nuevo nombre> ON transactions (tx_hash, tx_log_index) WHERE tx_hash IS NOT NULL AND source IN ('ETHERSCAN','BSCTRACE','ALCHEMY');\n  Down: comentario explicando que Postgres no soporta DROP VALUE de ENUM, y solo revierte el índice (DROP + recreate con el WHERE viejo).",
+        "Verificación manual: arrancar npm run db:migrate, correr una sync de wallet ETH y otra BSC, verificar en DB que los rows nuevos tienen source='ALCHEMY' y que no hay duplicados al re-correr.",
+        "Comportamiento esperado (ejemplo): sync una wallet ETH con 3 external + 1 internal + 1 erc20 → DB tiene 4 transactions con source='ALCHEMY' (la failed se excluye, la internal cuenta).",
+        "Comportamiento esperado (caso negativo): sync una wallet con ALCHEMY_API_KEY vacío → ApiKeyMissingError ANTES de tocar DB; transactions y wallet_sync_cursors no cambian.",
+        "Quality gates: npm run typecheck && npm run lint."
+      ]
+    },
+    {
+      "id": "US-004",
+      "title": "Credentials test endpoint: agregar testAlchemy()",
+      "status": "open",
+      "dependsOn": ["US-003"],
+      "description": "Como usuario, quiero poder testear la conectividad de mi ALCHEMY_API_KEY desde Settings (botón Test) — para validar que la key está correctamente configurada antes de correr una sync.",
+      "acceptanceCriteria": [
+        "apps/backend/src/services/credential-test.ts: agregar método público async testAlchemy(): Promise<CredentialTestResult> que pegue contra https://eth-mainnet.g.alchemy.com/v2/{ALCHEMY_API_KEY} con body {\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_blockNumber\",\"params\":[]} y timeout 8s. Lectura del key vía process.env.ALCHEMY_API_KEY?.trim().",
+        "Si la respuesta es HTTP 200 con body.result definido (hex block number), retornar { status: 'connected', meta: { latencyMs } }.",
+        "Si HTTP 401/403, retornar { status: 'failed', reason: 'Invalid API key' }.",
+        "Si HTTP 200 con body.error definido (e.g. invalid api key returns {error:{code:-32600,...}}), inspeccionar message y retornar { status: 'failed', reason: 'Invalid API key' } o el mensaje devuelto si es otro tipo de error.",
+        "Si HTTP 429, retornar { status: 'failed', reason: 'Rate limit exceeded' }.",
+        "Si timeout (AbortError), retornar { status: 'failed', reason: 'Connection timed out' }.",
+        "Si HTTP 5xx u otro error, retornar { status: 'failed', reason: 'Alchemy unreachable' }.",
+        "NO loguear la API key en ningún caso. La URL completa (que contiene la key) no debe aparecer en logs ni en mensajes de error.",
+        "apps/backend/src/schemas/credentials.ts: ampliar CredentialsPresenceSchema agregando ALCHEMY_API_KEY: z.boolean(). Ampliar CredentialServiceParamSchema: z.enum(['etherscan','bsctrace','binance','alchemy']) — los viejos siguen aceptados temporalmente, se remueven en US-006.",
+        "apps/backend/src/routes/credentials.ts: en el handler de POST /api/credentials/test/:service, agregar el case 'alchemy' → credentialTestService.testAlchemy(). En el handler de GET /api/credentials, incluir ALCHEMY_API_KEY: !!process.env.ALCHEMY_API_KEY en el objeto presence.",
+        "Comportamiento esperado (ejemplo): POST /api/credentials/test/alchemy con una key válida en env → 200 { status: 'connected', meta: { latencyMs: 142 } }.",
+        "Comportamiento esperado (caso negativo): POST /api/credentials/test/alchemy con env.ALCHEMY_API_KEY vacío → 200 { status: 'failed', reason: 'API key not configured' }.",
+        "Quality gates: npm run typecheck && npm run lint."
+      ]
+    },
+    {
+      "id": "US-005",
+      "title": "Frontend updates: Settings ApiKeys + SourceBadge + types",
+      "status": "open",
+      "dependsOn": ["US-004"],
+      "description": "Como usuario, quiero ver una sola fila ALCHEMY_API_KEY en Settings → API Keys (en lugar de Etherscan + BSCTrace) con botón Test funcional, y quiero que las transacciones con source='ALCHEMY' rendericen su badge correctamente en TokenDetail — manteniendo el render de rows históricas con sus labels viejos.",
+      "acceptanceCriteria": [
+        "apps/frontend/src/components/settings/ApiKeysSection.tsx: reemplazar las DOS filas hardcoded (ETHERSCAN_API_KEY y BSCTRACE_API_KEY) por UNA fila ALCHEMY_API_KEY con su botón Test. El grupo Binance queda igual. presence.ALCHEMY_API_KEY se lee del response del backend.",
+        "apps/frontend/src/hooks/settings/useApiKeysStatus.ts: el type/schema de la response debe reconocer ALCHEMY_API_KEY (Zod parsing). Las claves viejas pueden quedar opcionales durante la transición.",
+        "apps/frontend/src/hooks/settings/useTestApiKey.ts: agregar 'alchemy' al union de servicios soportados. states.alchemy: ApiKeyTestState con el mismo discriminated union (idle | testing | connected | failed). El handler de test('alchemy') invoca POST /api/credentials/test/alchemy.",
+        "apps/frontend/src/types/settings.ts: si hay un type que enumera servicios literales, agregar 'alchemy'. Mantener 'etherscan'|'bsctrace' temporalmente — se remueven en US-006.",
+        "apps/frontend/src/types/token-detail.ts: si el type de fuente lista 'ETHERSCAN'|'BSCTRACE'|'BINANCE'|'MANUAL', agregar 'ALCHEMY'. NO remover ETHERSCAN/BSCTRACE (rows históricos los renderizan).",
+        "apps/frontend/src/components/token-detail/SourceBadge.tsx: agregar mapping para source='ALCHEMY' con label 'Alchemy' y los mismos colores/estilo que ETHERSCAN actualmente (on-chain). Mantener mappings de ETHERSCAN y BSCTRACE intactos.",
+        "apps/frontend/src/components/settings/TokenRow.tsx: si referencia ETHERSCAN/BSCTRACE en alguna lógica de display (chequear), incluir 'ALCHEMY' como fuente válida on-chain. Mantener los anteriores.",
+        "Visual: con la nueva fila ALCHEMY_API_KEY, el botón Test debe disparar el flow de test y mostrar 'Connected · Nms' (success) o 'Failed: <reason>' (failure), idéntico patrón a Binance/Etherscan/BSCTrace actuales.",
+        "Comportamiento esperado (ejemplo): un usuario abre Settings → ve una fila 'ALCHEMY_API_KEY', presence verde si está configurada. Click Test → response 'Connected · 142ms'.",
+        "Comportamiento esperado (caso negativo): un usuario abre TokenDetail de un token con rows mixtas (algunas histórica source='ETHERSCAN', otras nueva source='ALCHEMY'). Las viejas muestran badge 'Etherscan', las nuevas 'Alchemy'. NO se mezclan.",
+        "Quality gates: npm run typecheck && npm run lint."
+      ]
+    },
+    {
+      "id": "US-006",
+      "title": "Cleanup completo: borrar Etherscan/BSCTrace del código vivo",
+      "status": "open",
+      "dependsOn": ["US-005"],
+      "description": "Como mantenedor, quiero que no quede ninguna referencia activa a Etherscan/BSCTrace en el código vivo del proyecto (excepto rows históricos en DB, archive/ y este PRD) — para que el contributor nuevo vea un único path de sync on-chain y la deuda se elimine.",
+      "acceptanceCriteria": [
+        "Borrar apps/backend/src/sync/clients/etherscan.ts.",
+        "Borrar apps/backend/src/sync/clients/bsctrace.ts.",
+        "Borrar cualquier test residual en apps/backend/tests/ que importe createEtherscanClient o createBSCTraceClient (los tests del cliente Alchemy se crean recién en US-007).",
+        "apps/backend/src/env.ts: remover ETHERSCAN_API_KEY y BSCTRACE_API_KEY del EnvSchema.",
+        ".env.example: remover ETHERSCAN_API_KEY y BSCTRACE_API_KEY. Limpiar comentarios 'deprecated' agregados en US-002.",
+        "render.yaml: remover envVars de ETHERSCAN_API_KEY y BSCTRACE_API_KEY.",
+        "apps/backend/src/services/credential-test.ts: borrar métodos testEtherscan() y testBsctrace(). Borrar helper parseEtherscanLikeBody si solo era usado por esos métodos.",
+        "apps/backend/src/schemas/credentials.ts: remover ETHERSCAN_API_KEY y BSCTRACE_API_KEY de CredentialsPresenceSchema. Reducir CredentialServiceParamSchema a z.enum(['binance','alchemy']).",
+        "apps/backend/src/routes/credentials.ts: remover los cases 'etherscan' y 'bsctrace' del handler de test. Remover ETHERSCAN_API_KEY/BSCTRACE_API_KEY del response de GET /api/credentials.",
+        "db/enums.ts: en SERVICE_NAMES, remover 'ETHERSCAN' y 'BSCTRACE'. En TRANSACTION_SOURCES, MANTENER 'ETHERSCAN' y 'BSCTRACE' (rows históricos). db/enums.test.ts debe pasar tras la regeneración.",
+        "Nueva migración SQL (ej. 0003_drop_legacy_service_names.sql): si el ENUM service_name tiene los valores ETHERSCAN/BSCTRACE, removerlos. Postgres no soporta DROP VALUE directo — la migración deberá: 1) crear un nuevo type service_name_v2 con los valores nuevos, 2) actualizar la columna referenciante, 3) drop type viejo, 4) rename type nuevo. Documentar la complejidad. Si nadie en api_credentials usa 'ETHERSCAN'/'BSCTRACE' (chequear con SELECT antes), la migración puede ser más simple.",
+        "apps/frontend/src/types/settings.ts: remover 'etherscan'|'bsctrace' del union de servicios.",
+        "apps/frontend/src/hooks/settings/useApiKeysStatus.ts: remover ETHERSCAN_API_KEY/BSCTRACE_API_KEY del Zod schema de la response.",
+        "apps/frontend/src/hooks/settings/useTestApiKey.ts: remover 'etherscan'|'bsctrace' del union de servicios. states.etherscan / states.bsctrace dejan de existir.",
+        "classify.ts: reducir el tipo Extract<TransactionSource, 'ETHERSCAN'|'BSCTRACE'|'ALCHEMY'> a Extract<TransactionSource, 'ALCHEMY'> en las 5 ubicaciones. Eliminar el switch ETH/BSC en la línea que asigna source.",
+        "db/seed.ts: si referencia api_credentials con service_name 'ETHERSCAN' o 'BSCTRACE', actualizarlas a 'ALCHEMY' o removerlas si ya no son necesarias.",
+        "Actualizar CLAUDE.md: sección 'Sync pagination and cursors' — reemplazar la descripción de Etherscan/BSCTrace por 'Alchemy: pageKey nativo, una sola llamada por dirección y categoría, dos llamadas (fromAddress/toAddress) por método, mergeo y dedupe por uniqueId'. Eliminar referencias a 'delta-by-block, batch 1000'.",
+        "Actualizar prd.json: cualquier rule, resolvedDecision o source de transactions que mencione ETHERSCAN/BSCTRACE como fuente activa pasa a ALCHEMY. Las menciones históricas (e.g. 'rows viejos con source=ETHERSCAN preservados') permanecen explícitas como tales.",
+        "Actualizar openspec/specs/on-chain-sync/spec.md: reemplazar toda la sección que describe Etherscan/BSCTrace por la descripción de Alchemy. Mantener compatibilidad histórica como nota.",
+        "Actualizar openspec/specs/database-schema/spec.md: reflejar el nuevo ENUM transaction_source extendido y el nuevo UNIQUE constraint.",
+        "Actualizar openspec/specs/project-scaffold/spec.md: env vars requeridas — reemplazar ETHERSCAN_API_KEY/BSCTRACE_API_KEY por ALCHEMY_API_KEY.",
+        "Actualizar openspec/specs/transaction-service/transaction-service.spec.md y openspec/specs/portfolio-service/spec.md: reemplazar menciones de ETHERSCAN/BSCTRACE como fuente activa.",
+        "Verificación final: ejecutar grep -ri 'etherscan|bsctrace|ETHERSCAN_API_KEY|BSCTRACE_API_KEY' sobre apps/, db/migrations/, packages/, openspec/specs/, .env.example, CLAUDE.md, prd.json, render.yaml — DEBE devolver CERO hits. Excepciones permitidas: openspec/changes/archive/**, db/migrations.old/**, .agents/tasks/prd-alchemy-onchain-sync.json, comentarios SQL de migraciones explicando 'preservado para histórico', db/enums.ts → TRANSACTION_SOURCES (rows históricos), mappings de SourceBadge para renderizar rows viejas.",
+        "Comportamiento esperado (ejemplo): tras US-006 cerrada, un nuevo dev clona el repo, lee CLAUDE.md y openspec/specs/on-chain-sync/spec.md, y solo encuentra Alchemy como fuente on-chain documentada.",
+        "Comportamiento esperado (caso negativo): si alguien intenta import { createEtherscanClient } from '../sync/clients/etherscan' la build falla con module-not-found.",
+        "Quality gates: npm run typecheck && npm run lint."
+      ]
+    },
+    {
+      "id": "US-007",
+      "title": "Tests del módulo de sincronización on-chain — escenarios documentados",
+      "status": "open",
+      "dependsOn": ["US-006"],
+      "description": "Como mantenedor, quiero un set exhaustivo de tests del módulo de sincronización (cliente Alchemy, OnChainSyncService, classify regresión, cost-resolver bajo source='ALCHEMY' y E2E) con escenarios documentados uno a uno, agrupados por: cliente unitario, primera sincronización (happy paths), re-sincronizaciones (idempotencia), errores y casos límite, cálculos de WAC/cycles/cost-resolver, y E2E completos — para asegurar que ninguna sincronización (primera ni posterior) produce errores críticos ni malos cálculos.\n\nLos tests viven en apps/backend/tests/ siguiendo el patrón existente: nombres sync-alchemy-*.test.ts entran en el vitest project 'sync'; tests de classify viven en apps/backend/src/sync/classify.test.ts (project 'engine'); E2E en tests/e2e/sync-alchemy-*.e2e.test.ts (project 'e2e', single-fork). Cada escenario tiene un identificador único (A-N, B-N, etc.) referenciado en los nombres de los tests vitest para trazabilidad.\n\nFixtures de respuestas Alchemy sanitizadas viven en apps/backend/tests/fixtures/alchemy/ con un README.md describiendo cada fixture.",
+      "acceptanceCriteria": [
+        "Crear apps/backend/tests/fixtures/alchemy/README.md documentando los fixtures de respuestas mockeadas, su origen, qué escenario cubre cada uno y cómo se sanitizaron (sin addresses reales del usuario).",
+        "── GRUPO A — AlchemyClient unitario (apps/backend/tests/sync-alchemy-client.test.ts, project 'sync', fetch mockeado) ──",
+        "A-1 (construcción ETH): createAlchemyClient({network:'ETH'}) — la primera request va a https://eth-mainnet.g.alchemy.com/v2/{KEY}.",
+        "A-2 (construcción BSC): createAlchemyClient({network:'BSC'}) — la primera request va a https://bnb-mainnet.g.alchemy.com/v2/{KEY}.",
+        "A-3 (assertConfigured vacío): createAlchemyClient({apiKey:''}).assertConfigured() lanza ApiKeyMissingError('ALCHEMY_API_KEY') sin hacer fetch.",
+        "A-4 (assertConfigured válido): createAlchemyClient({apiKey:'abc'}).assertConfigured() no lanza ni hace fetch.",
+        "A-5 (doble llamada normal): fetchNormalTransactions hace exactamente 2 POSTs, uno con fromAddress=X y otro con toAddress=X, ambos con category=['external','internal'].",
+        "A-6 (doble llamada token): fetchTokenTransactions hace exactamente 2 POSTs con category=['erc20'].",
+        "A-7 (dedupe uniqueId): si el mismo transfer aparece en ambas llamadas (self-transfer), el array resultante lo incluye una sola vez.",
+        "A-8 (paginación pageKey): respuesta con pageKey='abc' → el cliente hace una segunda request con pageKey='abc'. Cuando una respuesta no trae pageKey, el loop termina. Total fetches para fetchNormalTransactions con 2 páginas en cada dirección = 4.",
+        "A-9 (precisión hex value): rawContract.value='0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff' (uint256 max) se mapea a NormalizedTokenTx.value === '115792089237316195423570985008687907853269984665640564039457584007913129639935' SIN pérdida de precisión (BigInt).",
+        "A-10 (precisión hex decimal): rawContract.decimal='0x12' se mapea a NormalizedTokenTx.tokenDecimal === 18.",
+        "A-11 (timestamp ISO → unix): metadata.blockTimestamp='2025-04-15T12:34:56.000Z' se mapea a timeStamp === 1744720496.",
+        "A-12 (ordenamiento mergeado): respuestas con bloques desordenados al mergear quedan ordenadas por (blockNumber, índice de aparición) ascendente.",
+        "A-13 (retry 429 success): primera response 429, segunda 200 → cliente retorna el resultado de la segunda. Se observa un sleep ≥ 250ms entre ambas.",
+        "A-14 (retry 429 exhausted): 4 responses 429 consecutivas → lanza ExternalApiError('alchemy', { status: 429, url: scrubbed }).",
+        "A-15 (no retry on RPC error): response HTTP 200 con body.error definido → lanza ExternalApiError sin reintentar (verificar que fetch se llamó solo una vez).",
+        "A-16 (key scrubbing logs): tras un 429 final, el error.cause.url y los log.warn invocados NO contienen el segmento de la API key (verificar con regex /v2\\/(?!\\*\\*\\*)/).",
+        "A-17 (categories en body): el body JSON-RPC enviado a Alchemy para fetchNormalTransactions tiene params[0].category === ['external','internal']; para fetchTokenTransactions tiene params[0].category === ['erc20'].",
+        "── GRUPO B — classify.ts regresión bajo source='ALCHEMY' (apps/backend/src/sync/classify.test.ts, project 'engine') ──",
+        "B-1 (regresión swap detection ETH): un grupo con normalTx cuyo to == UNISWAP_V2_ROUTER y 2 tokenTxs → decompose retorna [SWAP_OUT, SWAP_IN] con tx_log_index 0/1 y related_tx_id mutuos. source='ALCHEMY' en ambas legs.",
+        "B-2 (regresión swap detection BSC): un grupo con normalTx cuyo to == PANCAKESWAP_V2_ROUTER → mismo patrón con source='ALCHEMY'.",
+        "B-3 (internal tx as TRANSFER_IN): un grupo con normalTx desde un contract (methodId=undefined, value > 0, to=wallet, from=contract) sin tokenTxs → decompose retorna [TRANSFER_IN] con tokenContract=null, tokenSymbol='ETH', source='ALCHEMY'.",
+        "B-4 (regresión: no methodId no rompe classify): un normalTx con methodId=undefined cuyo to NO está en SWAP_ROUTERS no se clasifica como swap (escenario que antes con Etherscan validaba methodId pero ahora classify no lo usa — verificar que no hay path muerto).",
+        "── GRUPO C — OnChainSyncService primera sincronización (apps/backend/tests/sync-alchemy-service.test.ts, project 'sync', DB real test, fetch mockeado, schema migrated) ──",
+        "C-1 (wallet vacía): wallet ETH sin txs (Alchemy retorna transfers:[] para ambas llamadas) → 0 inserts en transactions, wallet_sync_cursors actualiza last_synced_block al MAX_BLOCK procesado (o se mantiene).",
+        "C-2 (1 BUY token): wallet ETH con 1 erc20 inbound de USDC → 1 row con type='BUY', source='ALCHEMY', priceUsd=price del mock, costSource='MARKET'; position OPEN con balance=amount, wac=priceUsd, cost_basis=amount*priceUsd.",
+        "C-3 (1 BUY + 1 SELL parcial): BUY 100 USDC @ $1, SELL 30 USDC @ $1.10 → 2 rows insertados. Position OPEN con balance=70, wac=$1 (sin cambio), realized_pnl_usd = (1.10 - 1.00)*30 = $3 (verificar contra position-engine).",
+        "C-4 (cycle close): BUY 100 → SELL 100 → position CLOSED, balance=0, realized_pnl_usd frozen.",
+        "C-5 (cycle reopen): BUY 100 → SELL 100 → BUY 50 → primera position CLOSED (cycle 1, realized_pnl_usd frozen), segunda position OPEN (cycle 2) con wac=precio del segundo BUY, no inheritance de cycle 1.",
+        "C-6 (swap on-chain): wallet ETH con 1 tx cuyo grupo dispara SWAP_OUT + SWAP_IN → 2 rows insertados con related_tx_id mutuo y tx_log_index 0/1. Position del token_out reduce balance; position del token_in suma balance.",
+        "C-7 (swap BSC PancakeSwap): mismo patrón con network='BSC'.",
+        "C-8 (internal tx as TRANSFER_IN): wallet ETH con 1 internal tx (refund desde un contract) → 1 row TRANSFER_IN insertado, cost_source resolved por cost-resolver. NO crashea por methodId=undefined.",
+        "C-9 (TRANSFER_IN inherits from on-chain wallet): wallet A (ON_CHAIN, OPEN position de USDC) y wallet B (ON_CHAIN del MISMO user). Sync wallet B con un TRANSFER_IN cuyo from_address = wallet A.address → cost_source='INHERITED', price_usd = wac de A.",
+        "C-10 (TRANSFER_IN inherits from Binance withdrawal): wallet ON_CHAIN B con un TRANSFER_IN cuyo tx_hash matchea un transactions row pre-existente con source='BINANCE', type='TRANSFER_OUT' del mismo user → cost_source='INHERITED', priceUsd heredado de la posición CEX.",
+        "C-11 (TRANSFER_IN manual fallback): wallet ON_CHAIN B con un TRANSFER_IN cuyo from_address es desconocido y no hay match en Binance → cost_source='MANUAL', price_usd=null. Counter transfersPendingCost++.",
+        "C-12 (paginación grande): wallet con 2500 txs distribuidas en 3 páginas Alchemy → cliente devuelve 2500 transfers, classify produce ≥2500 rows insertados (algunos pueden ser SWAP_OUT/SWAP_IN dobles), no se duplica nada.",
+        "C-13 (orden de procesamiento WAC): wallet con 5 BUYs distribuidos en bloques distintos y precios distintos → el wac final coincide con el cálculo manual: sum(amount_i * price_i) / sum(amount_i). El orden de procesamiento es por (blockNumber, transactionIndex, tx_log_index) ASC.",
+        "C-14 (counters): SyncResult.synced, .skipped, .swapsDecomposed, .transfersPendingCost, .transfersInheritedFromCEX reflejan exactamente lo ocurrido en el escenario corrido.",
+        "── GRUPO D — Re-sincronizaciones e idempotencia (apps/backend/tests/sync-alchemy-resync.test.ts, project 'sync') ──",
+        "D-1 (re-sync sin cambios): tras una sync exitosa, re-correr la sync con el mismo fixture → 0 inserts adicionales (ON CONFLICT DO NOTHING), counters.synced=0, counters.skipped puede ser >0 dependiendo de implementación. wallet_sync_cursors NO retrocede.",
+        "D-2 (re-sync con 1 tx nueva): primera sync con 5 txs, segunda sync con 6 txs (la sexta nueva más allá del cursor) → segunda sync inserta exactamente 1 row.",
+        "D-3 (idempotencia exacta): forzar que la segunda llamada devuelva las MISMAS 5 txs que la primera (mismo tx_hash, mismo tx_log_index, mismo source='ALCHEMY') → ON CONFLICT DO NOTHING dispara 5 veces, 0 inserts, sin error.",
+        "D-4 (idempotencia con swap pre-existente): re-sync de un fixture que incluye un swap ya persistido (SWAP_OUT + SWAP_IN) → no duplica las legs, no rompe related_tx_id existente.",
+        "D-5 (cursor avanza monotónico): tras la primera sync con last_synced_block=100 → 500, una segunda sync con fixture vacío mantiene last_synced_block=500 (o avanza al current_block sin retroceder).",
+        "── GRUPO E — Errores y casos límite (apps/backend/tests/sync-alchemy-errors.test.ts, project 'sync') ──",
+        "E-1 (ALCHEMY_API_KEY vacío): sync(walletId) con process.env.ALCHEMY_API_KEY='' → lanza ApiKeyMissingError ANTES de cualquier fetch. DB no se modifica: 0 rows en transactions, wallet_sync_cursors sin cambios, sync_runs queda en estado 'error' o equivalente.",
+        "E-2 (Alchemy 429 exhaustivo): fetch mock responde 429 cuatro veces consecutivas → ExternalApiError sale del cliente, OnChainSyncService hace syncRunHelper.rollback(runId), cursor no avanza, transactions no se insertan.",
+        "E-3 (Alchemy JSON-RPC error): fetch mock responde HTTP 200 con body.error={code:-32600,message:'invalid params'} → ExternalApiError sin retry; mismo cleanup que E-2.",
+        "E-4 (priceService falla en BUY): la primera llamada a priceService.getHistoricalPrice retorna { priceUnavailable: true } → el row se inserta con priceUsd=null, costSource='MARKET'. Counter transfersPendingCost no se toca (eso es solo TRANSFER_IN). Position-engine debe tolerar precio null en BUY/SWAP_IN: si InsufficientBalanceError/InvalidTransactionError, el row NO se inserta (inserted=false) y el counter.skipped++.",
+        "E-5 (AbortSignal entre páginas): sync llamada con AbortSignal disparado tras la primera página → throw 'ABORTED', rollback, cursor no avanza.",
+        "E-6 (wallet de otro user): sync(walletId, userId) donde el wallet pertenece a otro user → NotFoundError. DB no se toca.",
+        "E-7 (wallet sin address): wallet ON_CHAIN con address=null en DB (invariante violado) → throw con mensaje claro 'invariant violation'. NO inserta nada.",
+        "E-8 (wallet_type wrong): sync(walletId) con wallet.wallet_type='CEX' → throw invariante violation. NO inserta nada.",
+        "── GRUPO F — Math: WAC, cycles, cost-resolver bajo source='ALCHEMY' (apps/backend/tests/sync-alchemy-math.test.ts, project 'sync') ──",
+        "F-1 (WAC promedio simple): BUY 100@$1, BUY 100@$2 → wac=$1.5. Verificado contra position-engine.",
+        "F-2 (WAC inmutable en SELL): BUY 100@$1, SELL 50@$5 → wac sigue $1, balance=50, realized_pnl_usd=200 (50*(5-1)).",
+        "F-3 (cycle WAC reset): BUY 100@$1, SELL 100@$2 (close), BUY 50@$3 → cycle 2 con wac=$3 (no $2 implícito ni $1.5 mezcla).",
+        "F-4 (SWAP_IN updates WAC del token_in): SWAP de 100 ETH @ $2000 por 200000 USDC → position USDC cycle nuevo o existente con WAC=(200000*price_USDC_at_swap)/200000 (= price_USDC_at_swap, normalmente $1). Verificar que SWAP_IN se trata como BUY a precio de mercado del token recibido al timestamp del swap.",
+        "F-5 (SWAP_OUT no toca WAC del token_out): SWAP de 100 ETH (wac=$2000) por X USDC → position ETH balance -=100, wac=$2000 intacto, realized_pnl_usd actualizado contra price ETH at swap.",
+        "F-6 (cost-resolver INHERITED on-chain hop): TRANSFER_IN de wallet A (wac=$1500) → wallet B → wallet B position USDC wac=$1500 (inheritance directa), no $1500 mas spread.",
+        "F-7 (cost-resolver CEX bridge): tx_hash=0xabc registrado en transactions con source='BINANCE'+type='TRANSFER_OUT'+priceUsd=$1800. TRANSFER_IN on-chain con mismo tx_hash → wac heredada=$1800. Validar que NO se hereda si el tx_hash de Binance está vacío/null.",
+        "── GRUPO G — E2E completos (tests/e2e/sync-alchemy-*.e2e.test.ts, project 'e2e', single-fork, DATABASE_URL_TEST real) ──",
+        "G-1 (E2E ETH happy path): server con enableAuth=false, wallet ETH insertada, fixture de Alchemy con 3 external + 1 internal + 2 erc20, POST /api/sync/wallets/:id → response 200 con SyncResult coherente. DB tiene 6 transactions con source='ALCHEMY' (3 externos válidos + 1 internal + 2 erc20). Las dummy txs failed quedan excluidas porque Alchemy ya las excluye.",
+        "G-2 (E2E BSC con swap): wallet BSC, fixture con swap PancakeSwap → response 200, DB tiene SWAP_OUT+SWAP_IN linkeados con related_tx_id mutuos y tx_log_index 0/1, source='ALCHEMY'.",
+        "G-3 (E2E re-sync idempotencia): correr G-1, después correr el mismo POST /api/sync/wallets/:id con el mismo fixture → response 200, SELECT COUNT(*) FROM transactions WHERE wallet_id=... devuelve el mismo número que en G-1.",
+        "G-4 (E2E rate limit): fixture devuelve 429 x4 → POST /api/sync/wallets/:id responde 502 (o el código mapeado por setErrorHandler para ExternalApiError). wallet_sync_cursors no avanza. transactions count sin cambios.",
+        "G-5 (E2E credentials test endpoint): POST /api/credentials/test/alchemy con ALCHEMY_API_KEY válida (mock fetch responde con eth_blockNumber result) → 200 { status:'connected', meta:{latencyMs} }.",
+        "G-6 (E2E credentials test endpoint negativo): POST /api/credentials/test/alchemy con env.ALCHEMY_API_KEY='' → 200 { status:'failed', reason:'API key not configured' }.",
+        "── Cierre US-007 ──",
+        "Total escenarios: A(1-17)+B(1-4)+C(1-14)+D(1-5)+E(1-8)+F(1-7)+G(1-6) = 61 escenarios. Cada uno con un test vitest cuyo nombre incluye el identificador (e.g. it('A-7: dedupe uniqueId across fromAddress/toAddress responses', …)).",
+        "Quality gates US-007: npm run typecheck && npm run lint && npm test (TODOS los projects: frontend, engine, sync, e2e).",
+        "Si algún escenario expone un bug en US-001..US-006, abrir un fix dentro del scope de esta US sin regresionar otros escenarios."
+      ]
+    }
+  ]
+}
