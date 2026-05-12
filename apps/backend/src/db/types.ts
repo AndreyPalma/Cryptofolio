@@ -19,22 +19,27 @@ export const TRANSACTION_TYPES = [
   "SWAP_OUT",
   "TRANSFER_IN",
   "TRANSFER_OUT",
-  "FIAT_IN",   // REQ-002
-  "FIAT_OUT",  // REQ-002
+  "FIAT_IN", // REQ-002
+  "FIAT_OUT", // REQ-002
 ] as const;
 
-export const TRANSACTION_SOURCES = ["ETHERSCAN", "BSCTRACE", "BINANCE", "MANUAL"] as const;
+export const TRANSACTION_SOURCES = [
+  "ETHERSCAN",
+  "BSCTRACE",
+  "BINANCE",
+  "MANUAL",
+  "ALCHEMY",
+] as const;
 
 export const POSITION_STATUSES = ["OPEN", "CLOSED"] as const;
 
 export const COST_SOURCES = ["MARKET", "INHERITED", "MANUAL"] as const;
 
 export const SERVICE_NAMES = [
-  "ETHERSCAN",
-  "BSCTRACE",
   "BINANCE_API_KEY",
   "BINANCE_SECRET_KEY",
   "TELEGRAM",
+  "ALCHEMY",
 ] as const;
 
 export type WalletType = (typeof WALLET_TYPES)[number];

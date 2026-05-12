@@ -27,16 +27,16 @@ Esta spec cubre la capa de servicios para la lectura y presentación del portafo
 
 Archivos afectados:
 
-| Archivo | Acción |
-|---------|--------|
-| `apps/backend/src/services/price.ts` | NUEVO |
-| `apps/backend/src/services/portfolio.ts` | NUEVO |
-| `apps/backend/src/services/token.ts` | MODIFICADO — agrega `findByContractAddress` |
-| `apps/backend/src/types/portfolio.ts` | NUEVO |
-| `apps/backend/src/services/__tests__/price.test.ts` | NUEVO |
-| `apps/backend/src/services/__tests__/portfolio.test.ts` | NUEVO |
+| Archivo                                                 | Acción                                      |
+| ------------------------------------------------------- | ------------------------------------------- |
+| `apps/backend/src/services/price.ts`                    | NUEVO                                       |
+| `apps/backend/src/services/portfolio.ts`                | NUEVO                                       |
+| `apps/backend/src/services/token.ts`                    | MODIFICADO — agrega `findByContractAddress` |
+| `apps/backend/src/types/portfolio.ts`                   | NUEVO                                       |
+| `apps/backend/src/services/__tests__/price.test.ts`     | NUEVO                                       |
+| `apps/backend/src/services/__tests__/portfolio.test.ts` | NUEVO                                       |
 
-**No incluye:** sincronización automática de transacciones (Etherscan, BSCTrace, Binance privada), persistencia de snapshots históricos de precio, validación de balance vs Binance accountSnapshot, conversión de dust.
+**No incluye:** sincronización automática de transacciones (Alchemy, Binance privada), persistencia de snapshots históricos de precio, validación de balance vs Binance accountSnapshot, conversión de dust.
 
 ---
 
@@ -45,31 +45,31 @@ Archivos afectados:
 ```typescript
 // apps/backend/src/types/portfolio.ts
 
-import { z } from 'zod';
-import type { TokenNetwork } from '../db/types.js'; // 'ETH' | 'BSC' | 'CEX_BINANCE'
+import { z } from "zod";
+import type { TokenNetwork } from "../db/types.js"; // 'ETH' | 'BSC' | 'CEX_BINANCE'
 
 // --- WalletBreakdown ---
 export const WalletBreakdownSchema = z.object({
   walletId: z.string(),
   label: z.string().nullable(),
-  balance: z.string(),    // DecimalString
-  wac: z.string(),        // DecimalString
+  balance: z.string(), // DecimalString
+  wac: z.string(), // DecimalString
 });
 export type WalletBreakdown = z.infer<typeof WalletBreakdownSchema>;
 
 // --- PortfolioTokenRow ---
 export const PortfolioTokenRowSchema = z.object({
   symbol: z.string(),
-  network: z.enum(['ETH', 'BSC', 'CEX_BINANCE']),
-  sourceType: z.enum(['ON_CHAIN', 'CEX']),
+  network: z.enum(["ETH", "BSC", "CEX_BINANCE"]),
+  sourceType: z.enum(["ON_CHAIN", "CEX"]),
   contractAddress: z.string(),
-  totalBalance: z.string(),         // DecimalString — suma de balances de todas las wallets
-  currentPrice: z.string().nullable(),   // null cuando priceUnavailable
+  totalBalance: z.string(), // DecimalString — suma de balances de todas las wallets
+  currentPrice: z.string().nullable(), // null cuando priceUnavailable
   totalCurrentValue: z.string().nullable(), // null cuando priceUnavailable
-  wacAggregated: z.string(),        // DecimalString — WAC ponderado entre wallets
-  totalCostBasis: z.string(),       // DecimalString — suma directa de cost_basis
-  pnlUsd: z.string().nullable(),    // null cuando priceUnavailable
-  pnlPct: z.string().nullable(),    // null cuando priceUnavailable
+  wacAggregated: z.string(), // DecimalString — WAC ponderado entre wallets
+  totalCostBasis: z.string(), // DecimalString — suma directa de cost_basis
+  pnlUsd: z.string().nullable(), // null cuando priceUnavailable
+  pnlPct: z.string().nullable(), // null cuando priceUnavailable
   walletCount: z.number().int(),
   walletBreakdown: z.array(WalletBreakdownSchema),
   priceUnavailable: z.boolean().optional(), // presente y true cuando el precio no pudo obtenerse
@@ -78,9 +78,9 @@ export type PortfolioTokenRow = z.infer<typeof PortfolioTokenRowSchema>;
 
 // --- PortfolioSummary ---
 export const PortfolioSummarySchema = z.object({
-  totalValueUsd: z.string(),        // DecimalString — suma de totalCurrentValue de tokens con precio
-  totalCostBasis: z.string(),       // DecimalString — suma de totalCostBasis de todos los tokens
-  totalPnlUsd: z.string(),          // DecimalString — suma de pnlUsd de tokens con precio
+  totalValueUsd: z.string(), // DecimalString — suma de totalCurrentValue de tokens con precio
+  totalCostBasis: z.string(), // DecimalString — suma de totalCostBasis de todos los tokens
+  totalPnlUsd: z.string(), // DecimalString — suma de pnlUsd de tokens con precio
   totalPnlPct: z.string().nullable(), // null si totalCostBasis es 0
   tokens: z.array(PortfolioTokenRowSchema),
 });
@@ -88,18 +88,18 @@ export type PortfolioSummary = z.infer<typeof PortfolioSummarySchema>;
 
 // --- EnrichedTransaction (per-lot P&L) ---
 export const LotPnlSchema = z.object({
-  lotPnlUsd: z.string().nullable(),  // null si price_usd original es null o priceUnavailable
+  lotPnlUsd: z.string().nullable(), // null si price_usd original es null o priceUnavailable
   lotPnlPct: z.string().nullable(),
 });
 
 export const EnrichedTransactionSchema = z.object({
   id: z.string(),
-  type: z.enum(['BUY', 'SELL', 'SWAP_IN', 'SWAP_OUT', 'TRANSFER_IN', 'TRANSFER_OUT']),
+  type: z.enum(["BUY", "SELL", "SWAP_IN", "SWAP_OUT", "TRANSFER_IN", "TRANSFER_OUT"]),
   amount: z.string(),
   priceUsd: z.string().nullable(),
-  blockTimestamp: z.string(),        // ISO-8601
-  lotPnl: LotPnlSchema.nullable(),   // null para outbound (SELL/SWAP_OUT/TRANSFER_OUT)
-  displayAs: z.enum(['Sold/Out']).optional(), // presente para outbound
+  blockTimestamp: z.string(), // ISO-8601
+  lotPnl: LotPnlSchema.nullable(), // null para outbound (SELL/SWAP_OUT/TRANSFER_OUT)
+  displayAs: z.enum(["Sold/Out"]).optional(), // presente para outbound
 });
 export type EnrichedTransaction = z.infer<typeof EnrichedTransactionSchema>;
 
@@ -108,22 +108,24 @@ export const TokenDetailSchema = z.object({
   token: z.object({
     id: z.string(),
     symbol: z.string(),
-    network: z.enum(['ETH', 'BSC', 'CEX_BINANCE']),
+    network: z.enum(["ETH", "BSC", "CEX_BINANCE"]),
     contractAddress: z.string(),
   }),
-  position: z.object({
-    id: z.string(),
-    cycleNumber: z.number().int(),
-    status: z.enum(['OPEN', 'CLOSED']),
-    wac: z.string(),
-    balance: z.string(),
-    costBasis: z.string(),
-    currentPrice: z.string().nullable(),
-    currentValue: z.string().nullable(),
-    unrealizedPnlUsd: z.string().nullable(),
-    unrealizedPnlPct: z.string().nullable(),
-    openedAt: z.string(),
-  }).nullable(),  // null si no hay posición OPEN
+  position: z
+    .object({
+      id: z.string(),
+      cycleNumber: z.number().int(),
+      status: z.enum(["OPEN", "CLOSED"]),
+      wac: z.string(),
+      balance: z.string(),
+      costBasis: z.string(),
+      currentPrice: z.string().nullable(),
+      currentValue: z.string().nullable(),
+      unrealizedPnlUsd: z.string().nullable(),
+      unrealizedPnlPct: z.string().nullable(),
+      openedAt: z.string(),
+    })
+    .nullable(), // null si no hay posición OPEN
   transactions: z.array(EnrichedTransactionSchema),
   priceUnavailable: z.boolean().optional(),
 });
@@ -132,9 +134,9 @@ export type TokenDetail = z.infer<typeof TokenDetailSchema>;
 // --- CycleHistory ---
 export const CycleHistorySchema = z.object({
   cycleNumber: z.number().int(),
-  openedAt: z.string(),         // ISO-8601
-  closedAt: z.string(),         // ISO-8601 — siempre presente en ciclos CLOSED
-  realizedPnlUsd: z.string(),   // DecimalString
+  openedAt: z.string(), // ISO-8601
+  closedAt: z.string(), // ISO-8601 — siempre presente en ciclos CLOSED
+  realizedPnlUsd: z.string(), // DecimalString
 });
 export type CycleHistory = z.infer<typeof CycleHistorySchema>;
 
@@ -162,9 +164,11 @@ La separación se garantiza a nivel de agrupación en `PortfolioService`: el key
 > **El WAC ponderado entre wallets MUST calcularse usando `decimal.js` exclusivamente. MUST NOT usar operadores nativos de JS (`+`, `-`, `*`, `/`) sobre strings de balances o WAC. MUST usar `toDecimal()` y `roundToStorage()` de `position-engine/decimal-utils.ts`.**
 
 Fórmula:
+
 ```
 wacAggregated = Σ(balance_i × wac_i) / Σ(balance_i)
 ```
+
 donde cada operación es una llamada a métodos de `Decimal`.
 
 ### INV-P-4 — WAC solo se recalcula en inbound
@@ -191,9 +195,9 @@ donde cada operación es una llamada a métodos de `Decimal`.
 type CacheEntry = { priceUsd: string; expiresAt: number };
 
 // Constantes
-const TTL_DEFILLAMA_MS = 60_000;   // 60 segundos
-const TTL_BINANCE_MS   = 10_000;   // 10 segundos
-const FETCH_TIMEOUT_MS = 5_000;    // 5 segundos — AbortController
+const TTL_DEFILLAMA_MS = 60_000; // 60 segundos
+const TTL_BINANCE_MS = 10_000; // 10 segundos
+const FETCH_TIMEOUT_MS = 5_000; // 5 segundos — AbortController
 
 // API pública
 export async function getPriceForToken(token: Token): Promise<string | null>;
@@ -204,14 +208,17 @@ export function __resetCacheForTests(): void;
 ```
 
 **Cache keys:**
+
 - ON_CHAIN: `onchain:${network.toLowerCase()}:${contractAddress.toLowerCase()}`
 - CEX: `cex:${binanceSymbol.toUpperCase()}`
 
 **Chain mapping (DefiLlama):**
+
 - `ETH` → `ethereum`
 - `BSC` → `bsc`
 
 **URL de proveedores:**
+
 - DefiLlama bulk: `GET https://coins.llama.fi/prices/current/{chain}:{address},{chain}:{address},...`
 - Binance ticker: `GET https://api.binance.com/api/v3/ticker/price?symbol={binanceSymbol}USDT`
 
@@ -219,12 +226,14 @@ export function __resetCacheForTests(): void;
 
 ```typescript
 const DefiLlamaResponseSchema = z.object({
-  coins: z.record(z.object({
-    price: z.number(),
-    symbol: z.string().optional(),
-    decimals: z.number().optional(),
-    timestamp: z.number().optional(),
-  }))
+  coins: z.record(
+    z.object({
+      price: z.number(),
+      symbol: z.string().optional(),
+      decimals: z.number().optional(),
+      timestamp: z.number().optional(),
+    }),
+  ),
 });
 
 const BinanceTickerResponseSchema = z.object({
@@ -236,6 +245,7 @@ const BinanceTickerResponseSchema = z.object({
 Si `safeParse` falla → `null` + `log.warn` con body crudo truncado a 500 caracteres.
 
 **`getPricesForTokens` — estrategia bulk:**
+
 1. Separar tokens en grupos: ON_CHAIN vs CEX.
 2. Para ON_CHAIN con cache miss: construir una sola URL con todos los coins (`ethereum:0x...,bsc:0x...`). Una sola request HTTP al lote completo.
 3. Para CEX con cache miss: `Promise.all(tokens.map(t => getCexPrice(t.binance_symbol)))`. Paralelo, no secuencial.
@@ -350,6 +360,7 @@ ORDER BY t.network, t.contract_address, t.symbol
 Clave de grupo: `${network}:${contract_address.toLowerCase()}` SOLO para filas donde `w.wallet_type = 'ON_CHAIN'`.
 
 Para cada grupo:
+
 ```
 totalBalance    = Σ toDecimal(p.balance)
 wacAggregated   = Σ(toDecimal(p.balance) × toDecimal(p.wac)) / totalBalance
@@ -384,15 +395,15 @@ Para cada fila con `currentPrice` disponible, MUST llamar a `calculateWAC()` del
 
 ```typescript
 const virtualPosition: PositionState = {
-  id: 'virtual',
-  walletId: 'virtual',
+  id: "virtual",
+  walletId: "virtual",
   tokenId: row.tokenId,
   cycleNumber: 1,
-  status: 'OPEN',
+  status: "OPEN",
   balance: row.totalBalance,
   wac: row.wacAggregated,
   costBasis: row.totalCostBasis,
-  realizedPnlUsd: '0.000000000000000000',
+  realizedPnlUsd: "0.000000000000000000",
   openedAt: new Date(),
   closedAt: null,
 };
@@ -420,6 +431,7 @@ AND wallet W2 con posición OPEN de T1 (`balance='2.0'`, `wac='3000.00'`, `cost_
 AND precio disponible: `'2500.00'`  
 **When**: se llama `getPortfolioSummary(pool)`  
 **Then**: el summary contiene 1 fila para T1 con:
+
 - `totalBalance = '3.000000000000000000'`
 - `wacAggregated = '2666.666666666666666667'` (=(1×2000+2×3000)/3)
 - `totalCostBasis = '8000.000000000000000000'`

@@ -1,0 +1,24 @@
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "transfers": [
+      {
+        "uniqueId": "0xdeadbeef:external:0",
+        "hash": "0xdeadbeef",
+        "blockNum": "0x64",
+        "from": "0xabc123abc123abc123abc123abc123abc123abcd",
+        "to": "0xdef456def456def456def456def456def456def4",
+        "value": 1.5,
+        "asset": "ETH",
+        "category": "external",
+        "rawContract": {
+          "address": null,
+          "value": "0x16345785d8a0000",
+          "decimal": "0x12"
+        },
+        "metadata": { "blockTimestamp": "2025-04-15T12:34:56.000Z" }
+      }
+    ]
+  }
+}

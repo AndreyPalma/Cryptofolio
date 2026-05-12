@@ -8,9 +8,8 @@ const TIMEOUT_MS = 10_000;
 type TestStates = Record<ApiService, ApiKeyTestState>;
 
 const initialStates: TestStates = {
-  etherscan: { status: "idle" },
-  bsctrace: { status: "idle" },
   binance: { status: "idle" },
+  alchemy: { status: "idle" },
 };
 
 export interface UseTestApiKeyResult {
@@ -56,13 +55,12 @@ export function useTestApiKey(): UseTestApiKeyResult {
       }
     } catch (e) {
       clearTimeout(timeoutId);
-      const isAbort =
-        e instanceof DOMException && e.name === "AbortError";
+      const isAbort = e instanceof DOMException && e.name === "AbortError";
       setStates((prev) => ({
         ...prev,
         [service]: {
           status: "failed",
-          reason: isAbort ? "Request timed out" : (e instanceof Error ? e.message : String(e)),
+          reason: isAbort ? "Request timed out" : e instanceof Error ? e.message : String(e),
         },
       }));
     }

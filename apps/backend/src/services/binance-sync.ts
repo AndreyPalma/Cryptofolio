@@ -1,34 +1,34 @@
 // BinanceSyncService — US-008-B / US-014
 // Orchestrates CEX sync: fiat, trades, converts, withdrawals, deposits from Binance REST API.
 
-import crypto from 'node:crypto';
-import type { Pool } from 'pg';
-import { Decimal } from 'decimal.js';
-import type { FastifyBaseLogger } from 'fastify';
-import type { PriceService } from './price.js';
-import type { PriceResult } from '../types/portfolio.js';
+import crypto from "node:crypto";
+import type { Pool } from "pg";
+import { Decimal } from "decimal.js";
+import type { FastifyBaseLogger } from "fastify";
+import type { PriceService } from "./price.js";
+import type { PriceResult } from "../types/portfolio.js";
 import type {
   BinanceApiClient,
   BinanceTrade,
   BinanceDeposit,
   BinanceFiatOrder,
   BinanceFiatPayment,
-} from '../sync/clients/binance-api.js';
-import { FiatPermissionDeniedError } from '../sync/clients/binance-api.js';
-import type { BinanceSyncResult } from '../schemas/sync.js';
-import type { PositionState } from '../position-engine/index.js';
-import { SyncRunHelper } from './sync-run-helper.js';
-import { loadInitial, apply } from './position-state-buffer.js';
-import { NotFoundError } from './errors.js';
-import type { TransactionType, CostSource } from '../db/types.js';
+} from "../sync/clients/binance-api.js";
+import { FiatPermissionDeniedError } from "../sync/clients/binance-api.js";
+import type { BinanceSyncResult } from "../schemas/sync.js";
+import type { PositionState } from "../position-engine/index.js";
+import { SyncRunHelper } from "./sync-run-helper.js";
+import { loadInitial, apply } from "./position-state-buffer.js";
+import { NotFoundError } from "./errors.js";
+import type { TransactionType, CostSource } from "../db/types.js";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-export const BINANCE_HISTORY_FLOOR_MS = new Date('2017-01-01T00:00:00.000Z').getTime();
+export const BINANCE_HISTORY_FLOOR_MS = new Date("2017-01-01T00:00:00.000Z").getTime();
 
-export const QUOTE_ASSETS = ['USDT', 'USDC', 'BTC', 'ETH', 'BNB', 'FDUSD'] as const;
+export const QUOTE_ASSETS = ["USDT", "USDC", "BTC", "ETH", "BNB", "FDUSD"] as const;
 
-export const STABLE_ASSETS = new Set(['USDT', 'USDC', 'BUSD', 'USD', 'FDUSD', 'TUSD', 'DAI']);
+export const STABLE_ASSETS = new Set(["USDT", "USDC", "BUSD", "USD", "FDUSD", "TUSD", "DAI"]);
 
 export function isStablePair(base: string, quote: string): boolean {
   return STABLE_ASSETS.has(base.toUpperCase()) && STABLE_ASSETS.has(quote.toUpperCase());
@@ -39,7 +39,7 @@ export function isStablePair(base: string, quote: string): boolean {
  * Order matters: check longest suffixes first to avoid misclassifying e.g. ETHBTC.
  */
 export function getQuoteAsset(symbol: string): string {
-  for (const suffix of ['FDUSD', 'USDT', 'USDC', 'BUSD', 'BNB', 'BTC', 'ETH']) {
+  for (const suffix of ["FDUSD", "USDT", "USDC", "BUSD", "BNB", "BTC", "ETH"]) {
     if (symbol.endsWith(suffix)) return suffix;
   }
   return symbol.slice(-3);
@@ -77,14 +77,17 @@ interface PersistBinanceTxOpts {
   syncRunId: string;
 }
 
-interface CursorUpdate { operation: string; value: string }
+interface CursorUpdate {
+  operation: string;
+  value: string;
+}
 type DeferCursor = (op: string, ms: number) => void;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /** Extract numeric price string from PriceResult; returns '0' if price unavailable. */
 function extractPrice(result: PriceResult): string {
-  return 'priceUsd' in result ? result.priceUsd : '0';
+  return "priceUsd" in result ? result.priceUsd : "0";
 }
 
 // ─── BinanceSyncService ───────────────────────────────────────────────────────
@@ -101,26 +104,23 @@ export class BinanceSyncService {
   ): Promise<BinanceSyncResult> {
     const walletResult = await this.deps.pool.query<{
       id: string;
-      wallet_type: 'ON_CHAIN' | 'CEX';
-    }>(
-      'SELECT id, wallet_type FROM wallets WHERE id=$1 AND user_id=$2',
-      [walletId, userId],
-    );
+      wallet_type: "ON_CHAIN" | "CEX";
+    }>("SELECT id, wallet_type FROM wallets WHERE id=$1 AND user_id=$2", [walletId, userId]);
 
     const wallet = walletResult.rows[0];
-    if (!wallet) throw new NotFoundError('Wallet not found', 'WALLET_NOT_FOUND');
-    if (wallet.wallet_type !== 'CEX') {
-      throw new Error('[BinanceSyncService] invariant: expected CEX wallet');
+    if (!wallet) throw new NotFoundError("Wallet not found", "WALLET_NOT_FOUND");
+    if (wallet.wallet_type !== "CEX") {
+      throw new Error("[BinanceSyncService] invariant: expected CEX wallet");
     }
 
     this.deps.binanceClient.assertConfigured();
 
     const log = this.deps.log;
-    log.info({ walletId }, '[BinanceSync] starting sync');
+    log.info({ walletId }, "[BinanceSync] starting sync");
     const syncStart = Date.now();
 
     const syncRunHelper = new SyncRunHelper(this.deps.pool);
-    const { runId } = await syncRunHelper.start(walletId, 'CEX');
+    const { runId } = await syncRunHelper.start(walletId, "CEX");
     const buffer = await loadInitial(this.deps.pool, walletId);
 
     const cursorUpdates: CursorUpdate[] = [];
@@ -129,27 +129,64 @@ export class BinanceSyncService {
     };
 
     let tokensCreated = 0;
-    const onTokenCreated = (n: number): void => { tokensCreated += n; };
+    const onTokenCreated = (n: number): void => {
+      tokensCreated += n;
+    };
 
     try {
-      log.info({ walletId }, '[BinanceSync] step 1/5 — fiat');
-      const fiatResult = await this.syncFiat(walletId, runId, buffer, deferCursor, onTokenCreated, opts);
+      log.info({ walletId }, "[BinanceSync] step 1/5 — fiat");
+      const fiatResult = await this.syncFiat(
+        walletId,
+        runId,
+        buffer,
+        deferCursor,
+        onTokenCreated,
+        opts,
+      );
       this.checkAborted(opts?.signal);
 
-      log.info({ walletId }, '[BinanceSync] step 2/5 — deposits');
-      const deposits = await this.syncDeposits(walletId, runId, buffer, deferCursor, onTokenCreated, opts);
+      log.info({ walletId }, "[BinanceSync] step 2/5 — deposits");
+      const deposits = await this.syncDeposits(
+        walletId,
+        runId,
+        buffer,
+        deferCursor,
+        onTokenCreated,
+        opts,
+      );
       this.checkAborted(opts?.signal);
 
-      log.info({ walletId }, '[BinanceSync] step 3/5 — withdrawals');
-      const withdrawals = await this.syncWithdrawals(walletId, runId, buffer, deferCursor, onTokenCreated, opts);
+      log.info({ walletId }, "[BinanceSync] step 3/5 — withdrawals");
+      const withdrawals = await this.syncWithdrawals(
+        walletId,
+        runId,
+        buffer,
+        deferCursor,
+        onTokenCreated,
+        opts,
+      );
       this.checkAborted(opts?.signal);
 
-      log.info({ walletId }, '[BinanceSync] step 4/5 — converts');
-      const converts = await this.syncConvert(walletId, runId, buffer, deferCursor, onTokenCreated, opts);
+      log.info({ walletId }, "[BinanceSync] step 4/5 — converts");
+      const converts = await this.syncConvert(
+        walletId,
+        runId,
+        buffer,
+        deferCursor,
+        onTokenCreated,
+        opts,
+      );
       this.checkAborted(opts?.signal);
 
-      log.info({ walletId }, '[BinanceSync] step 5/5 — trades');
-      const trades = await this.syncTrades(walletId, runId, buffer, deferCursor, onTokenCreated, opts);
+      log.info({ walletId }, "[BinanceSync] step 5/5 — trades");
+      const trades = await this.syncTrades(
+        walletId,
+        runId,
+        buffer,
+        deferCursor,
+        onTokenCreated,
+        opts,
+      );
 
       const totalPersisted =
         fiatResult + deposits.synced + withdrawals.synced + converts.synced + trades.synced;
@@ -158,13 +195,15 @@ export class BinanceSyncService {
       await syncRunHelper.commitSuccess(runId, { positions: buffer, cursorUpdates });
 
       try {
-        await this.deps.pool.query('UPDATE wallets SET last_synced_at = now() WHERE id = $1', [walletId]);
+        await this.deps.pool.query("UPDATE wallets SET last_synced_at = now() WHERE id = $1", [
+          walletId,
+        ]);
       } catch (err) {
-        log.error({ walletId, err }, '[BinanceSync] failed to update last_synced_at — best-effort');
+        log.error({ walletId, err }, "[BinanceSync] failed to update last_synced_at — best-effort");
       }
 
       const durationMs = Date.now() - syncStart;
-      log.info({ walletId, durationMs, tokensCreated }, '[BinanceSync] sync complete');
+      log.info({ walletId, durationMs, tokensCreated }, "[BinanceSync] sync complete");
 
       return { trades, converts, withdrawals, deposits, fiat: fiatResult, tokensCreated };
     } catch (err) {
@@ -176,7 +215,7 @@ export class BinanceSyncService {
   // ─── Private: checkAborted ────────────────────────────────────────────────
 
   private checkAborted(signal?: AbortSignal): void {
-    if (signal?.aborted) throw new Error('ABORTED');
+    if (signal?.aborted) throw new Error("ABORTED");
   }
 
   // ─── Private: applyToBuffer ───────────────────────────────────────────────
@@ -195,7 +234,7 @@ export class BinanceSyncService {
       apply(buffer, {
         position: buffer.get(tokenId) ?? null,
         priorClosedCycles: 0,
-        transaction: { type, amount, priceUsd, costSource, source: 'BINANCE', blockTimestamp },
+        transaction: { type, amount, priceUsd, costSource, source: "BINANCE", blockTimestamp },
         positionIdentity: buffer.has(tokenId)
           ? undefined
           : { id: crypto.randomUUID(), walletId, tokenId },
@@ -209,7 +248,7 @@ export class BinanceSyncService {
 
   private async getCursorFromPool(walletId: string, operation: string): Promise<number | null> {
     const r = await this.deps.pool.query<{ last_value: string }>(
-      'SELECT last_value FROM wallet_sync_cursors WHERE wallet_id=$1 AND operation=$2',
+      "SELECT last_value FROM wallet_sync_cursors WHERE wallet_id=$1 AND operation=$2",
       [walletId, operation],
     );
     if (!r.rows[0]) return null;
@@ -276,7 +315,7 @@ export class BinanceSyncService {
           opts.walletId,
           opts.tokenId,
           opts.type,
-          'BINANCE',
+          "BINANCE",
           opts.cexTradeId ?? null,
           opts.cexOrderId ?? null,
           opts.txLogIndex,
@@ -295,10 +334,10 @@ export class BinanceSyncService {
       );
     } catch (err: unknown) {
       if (
-        typeof err === 'object' &&
+        typeof err === "object" &&
         err !== null &&
-        'code' in err &&
-        (err as { code: string }).code === '22003'
+        "code" in err &&
+        (err as { code: string }).code === "22003"
       ) {
         return { inserted: false, id: txId };
       }
@@ -331,7 +370,7 @@ export class BinanceSyncService {
   async resolveDepositCost(
     deposit: BinanceDeposit,
     tokenId: string,
-  ): Promise<{ priceUsd: string; costSource: 'INHERITED' | 'MARKET' }> {
+  ): Promise<{ priceUsd: string; costSource: "INHERITED" | "MARKET" }> {
     const r = await this.deps.pool.query<{ wac: string }>(
       `SELECT p.wac
        FROM transactions t
@@ -348,11 +387,11 @@ export class BinanceSyncService {
     );
 
     if (r.rows[0]) {
-      return { priceUsd: r.rows[0].wac, costSource: 'INHERITED' };
+      return { priceUsd: r.rows[0].wac, costSource: "INHERITED" };
     }
 
     const priceResult = await this.deps.priceService.getCexPrice(deposit.coin);
-    return { priceUsd: extractPrice(priceResult), costSource: 'MARKET' };
+    return { priceUsd: extractPrice(priceResult), costSource: "MARKET" };
   }
 
   // ─── Private: discoverAssets ─────────────────────────────────────────────
@@ -388,39 +427,64 @@ export class BinanceSyncService {
   ): Promise<number> {
     const emit = opts?.emit;
     const signal = opts?.signal;
-    emit?.({ step: 'fiat', status: 'running' });
+    emit?.({ step: "fiat", status: "running" });
 
     let total = 0;
 
     // ── Orders ────────────────────────────────────────────────────────────────
-    const ordersOp = 'fiat:orders';
+    const ordersOp = "fiat:orders";
     const now = Date.now();
-    let ordersStart = (await this.getCursorFromPool(walletId, ordersOp)) ?? BINANCE_HISTORY_FLOOR_MS;
+    let ordersStart =
+      (await this.getCursorFromPool(walletId, ordersOp)) ?? BINANCE_HISTORY_FLOOR_MS;
 
     try {
       while (ordersStart < now) {
         this.checkAborted(signal);
         const endTime = Math.min(ordersStart + 90 * 24 * 60 * 60 * 1000, now);
         const [buys, sells] = await Promise.all([
-          this.deps.binanceClient.getFiatOrders({ beginTime: ordersStart, endTime, transactionType: 0, signal }),
-          this.deps.binanceClient.getFiatOrders({ beginTime: ordersStart, endTime, transactionType: 1, signal }),
+          this.deps.binanceClient.getFiatOrders({
+            beginTime: ordersStart,
+            endTime,
+            transactionType: 0,
+            signal,
+          }),
+          this.deps.binanceClient.getFiatOrders({
+            beginTime: ordersStart,
+            endTime,
+            transactionType: 1,
+            signal,
+          }),
         ]);
         for (const order of buys) {
-          total += await this.persistFiatTx(walletId, 'FIAT_IN', order, runId, buffer, onTokenCreated);
+          total += await this.persistFiatTx(
+            walletId,
+            "FIAT_IN",
+            order,
+            runId,
+            buffer,
+            onTokenCreated,
+          );
         }
         for (const order of sells) {
-          total += await this.persistFiatTx(walletId, 'FIAT_OUT', order, runId, buffer, onTokenCreated);
+          total += await this.persistFiatTx(
+            walletId,
+            "FIAT_OUT",
+            order,
+            runId,
+            buffer,
+            onTokenCreated,
+          );
         }
         ordersStart = endTime;
       }
       deferCursor(ordersOp, Date.now());
     } catch (err) {
       if (err instanceof FiatPermissionDeniedError) {
-        this.deps.log.info({ walletId }, '[BinanceSync/fiat] orders permission denied — skipping');
+        this.deps.log.info({ walletId }, "[BinanceSync/fiat] orders permission denied — skipping");
         emit?.({
-          step: 'fiat',
-          status: 'skipped',
-          reason: 'Tu API key no tiene permisos para historial fiat',
+          step: "fiat",
+          status: "skipped",
+          reason: "Tu API key no tiene permisos para historial fiat",
         });
         return 0;
       }
@@ -428,37 +492,71 @@ export class BinanceSyncService {
     }
 
     // ── Payments ──────────────────────────────────────────────────────────────
-    const paymentsOp = 'fiat:payments';
+    const paymentsOp = "fiat:payments";
     const now2 = Date.now();
-    let paymentsStart = (await this.getCursorFromPool(walletId, paymentsOp)) ?? BINANCE_HISTORY_FLOOR_MS;
+    let paymentsStart =
+      (await this.getCursorFromPool(walletId, paymentsOp)) ?? BINANCE_HISTORY_FLOOR_MS;
 
     try {
       while (paymentsStart < now2) {
         this.checkAborted(signal);
         const endTime = Math.min(paymentsStart + 90 * 24 * 60 * 60 * 1000, now2);
         const [buys, sells] = await Promise.all([
-          this.deps.binanceClient.getFiatPayments({ beginTime: paymentsStart, endTime, transactionType: 0, signal }),
-          this.deps.binanceClient.getFiatPayments({ beginTime: paymentsStart, endTime, transactionType: 1, signal }),
+          this.deps.binanceClient.getFiatPayments({
+            beginTime: paymentsStart,
+            endTime,
+            transactionType: 0,
+            signal,
+          }),
+          this.deps.binanceClient.getFiatPayments({
+            beginTime: paymentsStart,
+            endTime,
+            transactionType: 1,
+            signal,
+          }),
         ]);
         for (const payment of buys) {
-          total += await this.persistFiatPaymentTx(walletId, 'FIAT_IN', payment, runId, buffer, onTokenCreated);
+          total += await this.persistFiatPaymentTx(
+            walletId,
+            "FIAT_IN",
+            payment,
+            runId,
+            buffer,
+            onTokenCreated,
+          );
         }
         for (const payment of sells) {
-          total += await this.persistFiatPaymentTx(walletId, 'FIAT_OUT', payment, runId, buffer, onTokenCreated);
+          total += await this.persistFiatPaymentTx(
+            walletId,
+            "FIAT_OUT",
+            payment,
+            runId,
+            buffer,
+            onTokenCreated,
+          );
         }
         paymentsStart = endTime;
       }
       deferCursor(paymentsOp, Date.now());
     } catch (err) {
       if (err instanceof FiatPermissionDeniedError) {
-        this.deps.log.info({ walletId }, '[BinanceSync/fiat] payments permission denied — continuing with orders');
-        emit?.({ step: 'fiat', status: 'done', synced: total, skipped: 0, message: 'payments skipped (permissions)' });
+        this.deps.log.info(
+          { walletId },
+          "[BinanceSync/fiat] payments permission denied — continuing with orders",
+        );
+        emit?.({
+          step: "fiat",
+          status: "done",
+          synced: total,
+          skipped: 0,
+          message: "payments skipped (permissions)",
+        });
         return total;
       }
       throw err;
     }
 
-    emit?.({ step: 'fiat', status: 'done', synced: total, skipped: 0 });
+    emit?.({ step: "fiat", status: "done", synced: total, skipped: 0 });
     return total;
   }
 
@@ -466,7 +564,7 @@ export class BinanceSyncService {
 
   private async persistFiatTx(
     walletId: string,
-    type: 'FIAT_IN' | 'FIAT_OUT',
+    type: "FIAT_IN" | "FIAT_OUT",
     order: BinanceFiatOrder,
     runId: string,
     buffer: Map<string, PositionState>,
@@ -487,12 +585,21 @@ export class BinanceSyncService {
       txLogIndex: 0,
       amount: order.obtainAmount,
       priceUsd: order.price,
-      costSource: 'MARKET',
+      costSource: "MARKET",
       cexTimestamp: ts,
       syncRunId: runId,
     });
     if (result.inserted) {
-      this.applyToBuffer(buffer, walletId, tokenId, type, order.obtainAmount, order.price, 'MARKET', ts);
+      this.applyToBuffer(
+        buffer,
+        walletId,
+        tokenId,
+        type,
+        order.obtainAmount,
+        order.price,
+        "MARKET",
+        ts,
+      );
       return 1;
     }
     return 0;
@@ -502,7 +609,7 @@ export class BinanceSyncService {
 
   private async persistFiatPaymentTx(
     walletId: string,
-    type: 'FIAT_IN' | 'FIAT_OUT',
+    type: "FIAT_IN" | "FIAT_OUT",
     payment: BinanceFiatPayment,
     runId: string,
     buffer: Map<string, PositionState>,
@@ -517,20 +624,25 @@ export class BinanceSyncService {
     let priceUsd: string | null;
     let costSource: CostSource;
 
-    if (payment.fiatCurrency.toUpperCase() === 'USD') {
-      priceUsd = new Decimal(payment.sourceAmount).div(new Decimal(payment.obtainAmount)).toFixed(8);
-      costSource = 'MARKET';
+    if (payment.fiatCurrency.toUpperCase() === "USD") {
+      priceUsd = new Decimal(payment.sourceAmount)
+        .div(new Decimal(payment.obtainAmount))
+        .toFixed(8);
+      costSource = "MARKET";
     } else {
-      const rate = await this.deps.priceService.getFiatToUsdAt(payment.fiatCurrency, payment.createTime);
+      const rate = await this.deps.priceService.getFiatToUsdAt(
+        payment.fiatCurrency,
+        payment.createTime,
+      );
       if (rate) {
         priceUsd = new Decimal(rate)
           .mul(new Decimal(payment.sourceAmount))
           .div(new Decimal(payment.obtainAmount))
           .toFixed(8);
-        costSource = 'MARKET';
+        costSource = "MARKET";
       } else {
         priceUsd = null;
-        costSource = 'MANUAL';
+        costSource = "MANUAL";
       }
     }
 
@@ -543,14 +655,23 @@ export class BinanceSyncService {
       cexOrderId: payment.orderNo,
       txLogIndex: 0,
       amount: payment.obtainAmount,
-      priceUsd: priceUsd ?? '0',
+      priceUsd: priceUsd ?? "0",
       costSource,
       cexTimestamp: ts,
       syncRunId: runId,
     });
 
     if (result.inserted && priceUsd !== null) {
-      this.applyToBuffer(buffer, walletId, tokenId, type, payment.obtainAmount, priceUsd, costSource, ts);
+      this.applyToBuffer(
+        buffer,
+        walletId,
+        tokenId,
+        type,
+        payment.obtainAmount,
+        priceUsd,
+        costSource,
+        ts,
+      );
     }
 
     return result.inserted ? 1 : 0;
@@ -568,7 +689,7 @@ export class BinanceSyncService {
   ): Promise<{ synced: number; skipped: number; symbolsProcessed: number }> {
     const emit = opts?.emit;
     const signal = opts?.signal;
-    emit?.({ step: 'trades', status: 'running' });
+    emit?.({ step: "trades", status: "running" });
 
     let synced = 0;
     let skipped = 0;
@@ -589,7 +710,10 @@ export class BinanceSyncService {
         if (validSymbols.has(symbol)) candidates.push(symbol);
       }
     }
-    log.info({ walletId, assets: assets.length, candidates: candidates.length }, '[BinanceSync/trades] symbol plan');
+    log.info(
+      { walletId, assets: assets.length, candidates: candidates.length },
+      "[BinanceSync/trades] symbol plan",
+    );
 
     for (const asset of assets) {
       for (const quote of QUOTE_ASSETS) {
@@ -602,20 +726,29 @@ export class BinanceSyncService {
 
         const cursorKey = `trades:${symbol}`;
         const now = Date.now();
-        let startTime = (await this.getCursorFromPool(walletId, cursorKey)) ?? BINANCE_HISTORY_FLOOR_MS;
+        let startTime =
+          (await this.getCursorFromPool(walletId, cursorKey)) ?? BINANCE_HISTORY_FLOOR_MS;
 
         while (startTime < now) {
           this.checkAborted(signal);
           const endTime = Math.min(startTime + 24 * 60 * 60 * 1000, now);
-          const trades = await this.deps.binanceClient.getMyTrades(symbol, startTime, endTime, signal);
+          const trades = await this.deps.binanceClient.getMyTrades(
+            symbol,
+            startTime,
+            endTime,
+            signal,
+          );
           if (trades === null) {
-            log.warn({ walletId, symbol }, '[BinanceSync/trades] symbol rejected by exchange — skipping');
+            log.warn(
+              { walletId, symbol },
+              "[BinanceSync/trades] symbol rejected by exchange — skipping",
+            );
             break;
           }
 
           for (const trade of trades) {
             const tokenId = await this.ensureTokenCexFromPool(asset, asset, onTokenCreated);
-            const type: TransactionType = trade.isBuyer ? 'BUY' : 'SELL';
+            const type: TransactionType = trade.isBuyer ? "BUY" : "SELL";
             const priceUsd = await this.computeTradePrice(trade);
             const ts = new Date(trade.time);
 
@@ -628,7 +761,7 @@ export class BinanceSyncService {
               txHash: null,
               amount: trade.qty,
               priceUsd,
-              costSource: 'MARKET',
+              costSource: "MARKET",
               commissionAsset: trade.commissionAsset ?? null,
               commissionAmount: trade.commission ?? null,
               cexTimestamp: ts,
@@ -637,7 +770,16 @@ export class BinanceSyncService {
 
             if (result.inserted) {
               synced++;
-              this.applyToBuffer(buffer, walletId, tokenId, type, trade.qty, priceUsd, 'MARKET', ts);
+              this.applyToBuffer(
+                buffer,
+                walletId,
+                tokenId,
+                type,
+                trade.qty,
+                priceUsd,
+                "MARKET",
+                ts,
+              );
             } else {
               skipped++;
             }
@@ -651,7 +793,7 @@ export class BinanceSyncService {
       }
     }
 
-    emit?.({ step: 'trades', status: 'done', synced, skipped, symbolsProcessed });
+    emit?.({ step: "trades", status: "done", synced, skipped, symbolsProcessed });
     return { synced, skipped, symbolsProcessed };
   }
 
@@ -667,13 +809,14 @@ export class BinanceSyncService {
   ): Promise<{ synced: number; skipped: number }> {
     const emit = opts?.emit;
     const signal = opts?.signal;
-    emit?.({ step: 'converts', status: 'running' });
+    emit?.({ step: "converts", status: "running" });
 
     let synced = 0;
     let skipped = 0;
 
     const now = Date.now();
-    let startTime = (await this.getCursorFromPool(walletId, 'converts')) ?? BINANCE_HISTORY_FLOOR_MS;
+    let startTime =
+      (await this.getCursorFromPool(walletId, "converts")) ?? BINANCE_HISTORY_FLOOR_MS;
 
     while (startTime < now) {
       this.checkAborted(signal);
@@ -693,33 +836,38 @@ export class BinanceSyncService {
         const swapInId = crypto.randomUUID();
 
         const fromTokenId = await this.ensureTokenCexFromPool(
-          convert.fromAsset, convert.fromAsset, onTokenCreated,
+          convert.fromAsset,
+          convert.fromAsset,
+          onTokenCreated,
         );
         const toTokenId = await this.ensureTokenCexFromPool(
-          convert.toAsset, convert.toAsset, onTokenCreated,
+          convert.toAsset,
+          convert.toAsset,
+          onTokenCreated,
         );
 
         const fromIsStable = STABLE_ASSETS.has(convert.fromAsset.toUpperCase());
         const fromPriceUsd = fromIsStable
-          ? '1.0'
+          ? "1.0"
           : extractPrice(await this.deps.priceService.getCexPrice(convert.fromAsset));
 
         const fromTotalUsd = new Decimal(fromPriceUsd).mul(new Decimal(convert.fromAmount));
         const toPriceUsd = fromTotalUsd.div(new Decimal(convert.toAmount)).toFixed(8);
         const ts = new Date(convert.createTime);
 
+        // Phase 1: insert both legs with relatedTxId = null to avoid FK violation
         const outResult = await this.persistBinanceTxAtomic({
           id: swapOutId,
           walletId,
           tokenId: fromTokenId,
-          type: 'SWAP_OUT',
+          type: "SWAP_OUT",
           cexTradeId: orderIdBigInt,
           txLogIndex: 0,
-          relatedTxId: swapInId,
+          relatedTxId: null,
           txHash: null,
           amount: convert.fromAmount,
           priceUsd: fromPriceUsd,
-          costSource: 'MARKET',
+          costSource: "MARKET",
           cexTimestamp: ts,
           syncRunId: runId,
         });
@@ -729,25 +877,55 @@ export class BinanceSyncService {
           continue;
         }
 
-        this.applyToBuffer(buffer, walletId, fromTokenId, 'SWAP_OUT', convert.fromAmount, fromPriceUsd, 'MARKET', ts);
+        this.applyToBuffer(
+          buffer,
+          walletId,
+          fromTokenId,
+          "SWAP_OUT",
+          convert.fromAmount,
+          fromPriceUsd,
+          "MARKET",
+          ts,
+        );
 
         const inResult = await this.persistBinanceTxAtomic({
           id: swapInId,
           walletId,
           tokenId: toTokenId,
-          type: 'SWAP_IN',
+          type: "SWAP_IN",
           cexTradeId: orderIdBigInt,
           txLogIndex: 1,
-          relatedTxId: swapOutId,
+          relatedTxId: null,
           txHash: null,
           amount: convert.toAmount,
           priceUsd: toPriceUsd,
-          costSource: 'MARKET',
+          costSource: "MARKET",
           cexTimestamp: ts,
           syncRunId: runId,
         });
 
-        this.applyToBuffer(buffer, walletId, toTokenId, 'SWAP_IN', convert.toAmount, toPriceUsd, 'MARKET', ts);
+        this.applyToBuffer(
+          buffer,
+          walletId,
+          toTokenId,
+          "SWAP_IN",
+          convert.toAmount,
+          toPriceUsd,
+          "MARKET",
+          ts,
+        );
+
+        // Phase 2: link the two legs
+        if (inResult.inserted) {
+          await this.deps.pool.query("UPDATE transactions SET related_tx_id = $1 WHERE id = $2", [
+            swapInId,
+            swapOutId,
+          ]);
+          await this.deps.pool.query("UPDATE transactions SET related_tx_id = $1 WHERE id = $2", [
+            swapOutId,
+            swapInId,
+          ]);
+        }
 
         synced += 1 + (inResult.inserted ? 1 : 0);
         skipped += inResult.inserted ? 0 : 1;
@@ -756,8 +934,8 @@ export class BinanceSyncService {
       startTime = endTime;
     }
 
-    deferCursor('converts', Date.now());
-    emit?.({ step: 'converts', status: 'done', synced, skipped });
+    deferCursor("converts", Date.now());
+    emit?.({ step: "converts", status: "done", synced, skipped });
     return { synced, skipped };
   }
 
@@ -773,18 +951,23 @@ export class BinanceSyncService {
   ): Promise<{ synced: number; skipped: number }> {
     const emit = opts?.emit;
     const signal = opts?.signal;
-    emit?.({ step: 'withdrawals', status: 'running' });
+    emit?.({ step: "withdrawals", status: "running" });
 
     let synced = 0;
     let skipped = 0;
 
     const now = Date.now();
-    let startTime = (await this.getCursorFromPool(walletId, 'withdrawals')) ?? BINANCE_HISTORY_FLOOR_MS;
+    let startTime =
+      (await this.getCursorFromPool(walletId, "withdrawals")) ?? BINANCE_HISTORY_FLOOR_MS;
 
     while (startTime < now) {
       this.checkAborted(signal);
       const endTime = Math.min(startTime + 90 * 24 * 60 * 60 * 1000, now);
-      const withdrawals = await this.deps.binanceClient.getWithdrawHistory(startTime, endTime, signal);
+      const withdrawals = await this.deps.binanceClient.getWithdrawHistory(
+        startTime,
+        endTime,
+        signal,
+      );
 
       for (const withdrawal of withdrawals) {
         let withdrawalIdBigInt: bigint;
@@ -796,23 +979,25 @@ export class BinanceSyncService {
         }
 
         const tokenId = await this.ensureTokenCexFromPool(
-          withdrawal.coin, withdrawal.coin, onTokenCreated,
+          withdrawal.coin,
+          withdrawal.coin,
+          onTokenCreated,
         );
 
-    const openPos = buffer.get(tokenId);
-    const priceUsd = openPos?.status === 'OPEN' ? openPos.wac : '0';
+        const openPos = buffer.get(tokenId);
+        const priceUsd = openPos?.status === "OPEN" ? openPos.wac : "0";
         const ts = new Date(withdrawal.applyTime);
 
         const result = await this.persistBinanceTxAtomic({
           walletId,
           tokenId,
-          type: 'TRANSFER_OUT',
+          type: "TRANSFER_OUT",
           cexTradeId: withdrawalIdBigInt,
           txLogIndex: 0,
           txHash: withdrawal.txId,
           amount: withdrawal.amount,
           priceUsd,
-          costSource: 'INHERITED',
+          costSource: "INHERITED",
           toAddress: withdrawal.address,
           cexTimestamp: ts,
           syncRunId: runId,
@@ -820,7 +1005,16 @@ export class BinanceSyncService {
 
         if (result.inserted) {
           synced++;
-          this.applyToBuffer(buffer, walletId, tokenId, 'TRANSFER_OUT', withdrawal.amount, priceUsd, 'INHERITED', ts);
+          this.applyToBuffer(
+            buffer,
+            walletId,
+            tokenId,
+            "TRANSFER_OUT",
+            withdrawal.amount,
+            priceUsd,
+            "INHERITED",
+            ts,
+          );
         } else {
           skipped++;
         }
@@ -829,8 +1023,8 @@ export class BinanceSyncService {
       startTime = endTime;
     }
 
-    deferCursor('withdrawals', Date.now());
-    emit?.({ step: 'withdrawals', status: 'done', synced, skipped });
+    deferCursor("withdrawals", Date.now());
+    emit?.({ step: "withdrawals", status: "done", synced, skipped });
     return { synced, skipped };
   }
 
@@ -846,7 +1040,7 @@ export class BinanceSyncService {
   ): Promise<{ synced: number; skipped: number; inherited: number; manual: number }> {
     const emit = opts?.emit;
     const signal = opts?.signal;
-    emit?.({ step: 'deposits', status: 'running' });
+    emit?.({ step: "deposits", status: "running" });
 
     let synced = 0;
     let skipped = 0;
@@ -854,7 +1048,8 @@ export class BinanceSyncService {
     let manual = 0;
 
     const now = Date.now();
-    let startTime = (await this.getCursorFromPool(walletId, 'deposits')) ?? BINANCE_HISTORY_FLOOR_MS;
+    let startTime =
+      (await this.getCursorFromPool(walletId, "deposits")) ?? BINANCE_HISTORY_FLOOR_MS;
 
     while (startTime < now) {
       this.checkAborted(signal);
@@ -862,7 +1057,11 @@ export class BinanceSyncService {
       const deposits = await this.deps.binanceClient.getDepositHistory(startTime, endTime, signal);
 
       for (const deposit of deposits) {
-        const tokenId = await this.ensureTokenCexFromPool(deposit.coin, deposit.coin, onTokenCreated);
+        const tokenId = await this.ensureTokenCexFromPool(
+          deposit.coin,
+          deposit.coin,
+          onTokenCreated,
+        );
 
         const existing = await this.deps.pool.query<{ id: string }>(
           `SELECT id FROM transactions
@@ -882,7 +1081,7 @@ export class BinanceSyncService {
         const result = await this.persistBinanceTxAtomic({
           walletId,
           tokenId,
-          type: 'TRANSFER_IN',
+          type: "TRANSFER_IN",
           cexTradeId: null,
           txLogIndex: 0,
           txHash: deposit.txId,
@@ -896,11 +1095,17 @@ export class BinanceSyncService {
 
         if (result.inserted) {
           synced++;
-          if (resolution.costSource === 'INHERITED') inherited++;
+          if (resolution.costSource === "INHERITED") inherited++;
           else manual++;
           this.applyToBuffer(
-            buffer, walletId, tokenId, 'TRANSFER_IN',
-            deposit.amount, resolution.priceUsd, resolution.costSource, ts,
+            buffer,
+            walletId,
+            tokenId,
+            "TRANSFER_IN",
+            deposit.amount,
+            resolution.priceUsd,
+            resolution.costSource,
+            ts,
           );
         } else {
           skipped++;
@@ -910,8 +1115,8 @@ export class BinanceSyncService {
       startTime = endTime;
     }
 
-    deferCursor('deposits', Date.now());
-    emit?.({ step: 'deposits', status: 'done', synced, skipped, inherited, manual });
+    deferCursor("deposits", Date.now());
+    emit?.({ step: "deposits", status: "done", synced, skipped, inherited, manual });
     return { synced, skipped, inherited, manual };
   }
 }

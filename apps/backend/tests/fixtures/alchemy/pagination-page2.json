@@ -1,0 +1,24 @@
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "transfers": [
+      {
+        "uniqueId": "0xpage2:external:0",
+        "hash": "0xpage2",
+        "blockNum": "0x65",
+        "from": "0xabc123abc123abc123abc123abc123abc123abcd",
+        "to": "0xdef456def456def456def456def456def456def4",
+        "value": 2,
+        "asset": "ETH",
+        "category": "external",
+        "rawContract": {
+          "address": null,
+          "value": "0x1bc16d674ec80000",
+          "decimal": "0x12"
+        },
+        "metadata": { "blockTimestamp": "2025-04-15T12:35:56.000Z" }
+      }
+    ]
+  }
+}

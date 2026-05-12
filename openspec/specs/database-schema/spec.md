@@ -91,11 +91,11 @@ Define el schema híbrido on-chain/CEX en Postgres para CryptoLedger: tablas, EN
 
 ### Requirement: Tabla `transactions` soporta on-chain + CEX + swap decomposition
 
-`transactions` MUST tener `tx_hash VARCHAR NULL`, `tx_log_index INTEGER NULL`, `cex_trade_id BIGINT NULL`, `commission_asset VARCHAR(20) NULL`, `commission_amount NUMERIC NULL`, `source` ENUM con `'ETHERSCAN','BSCTRACE','BINANCE','MANUAL'`, y `related_tx_id` FK self-reference NULLABLE para linkear `SWAP_OUT`↔`SWAP_IN`.
+`transactions` MUST tener `tx_hash VARCHAR NULL`, `tx_log_index INTEGER NULL`, `cex_trade_id BIGINT NULL`, `commission_asset VARCHAR(20) NULL`, `commission_amount NUMERIC NULL`, `source` ENUM con `'ALCHEMY','BINANCE','MANUAL'` (legacy `ETHERSCAN`/`BSCTRACE` values remain present in historical rows), y `related_tx_id` FK self-reference NULLABLE para linkear `SWAP_OUT`↔`SWAP_IN`.
 
 #### Scenario: BUY on-chain
 
-- WHEN se inserta `(source='ETHERSCAN', tx_hash='0xabc', tx_log_index=0, type='BUY', cex_trade_id=NULL, ...)`
+- WHEN se inserta `(source='ALCHEMY', tx_hash='0xabc', tx_log_index=0, type='BUY', cex_trade_id=NULL, ...)`
 - THEN INSERT MUST tener éxito
 
 #### Scenario: Convert Binance (dos rows mismo cex_trade_id)
@@ -105,7 +105,7 @@ Define el schema híbrido on-chain/CEX en Postgres para CryptoLedger: tablas, EN
 
 ### Requirement: Partial UNIQUE on-chain
 
-Las transacciones on-chain MUST ser únicas por `(tx_hash, tx_log_index)` solo cuando `tx_hash IS NOT NULL AND source IN ('ETHERSCAN','BSCTRACE')`.
+Las transacciones on-chain MUST ser únicas por `(tx_hash, tx_log_index)` solo cuando `tx_hash IS NOT NULL AND source IN ('ALCHEMY')` (historical `ETHERSCAN`/`BSCTRACE` rows preserved).
 
 #### Scenario: Mismo tx_hash con distinto log_index permitido
 
@@ -114,8 +114,8 @@ Las transacciones on-chain MUST ser únicas por `(tx_hash, tx_log_index)` solo c
 
 #### Scenario: Duplicado on-chain falla
 
-- GIVEN un row `(tx_hash='0xabc', tx_log_index=0, source='ETHERSCAN')`
-- WHEN se intenta insertar otro `(tx_hash='0xabc', tx_log_index=0, source='ETHERSCAN')`
+- GIVEN un row `(tx_hash='0xabc', tx_log_index=0, source='ALCHEMY')`
+- WHEN se intenta insertar otro `(tx_hash='0xabc', tx_log_index=0, source='ALCHEMY')`
 - THEN el INSERT MUST fallar con violation del UNIQUE parcial
 
 ### Requirement: Partial UNIQUE CEX (NEGATIVE PRD)
@@ -187,7 +187,7 @@ El ENUM `transaction_type` MUST contener 8 valores tras la migración `0005_fiat
 
 ### Requirement: `api_credentials.service_name` ENUM con nombres canónicos
 
-`service_name` ENUM MUST incluir `'ETHERSCAN'`, `'BSCTRACE'`, `'BINANCE_API_KEY'`, `'BINANCE_SECRET_KEY'`, `'TELEGRAM'`. SHALL NOT incluir `'BINANCE_API_SECRET'`.
+`service_name` ENUM MUST incluir `'ALCHEMY'`, `'BINANCE_API_KEY'`, `'BINANCE_SECRET_KEY'`, `'TELEGRAM'`. SHALL NOT incluir `'ETHERSCAN'`, `'BSCTRACE'`, ni `'BINANCE_API_SECRET'`.
 
 #### Scenario: Insertar BINANCE_SECRET_KEY OK
 

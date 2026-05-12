@@ -27,7 +27,7 @@ interface TokenStatsCardsProps {
 
 export function TokenStatsCards({
   position,
-  _token,
+  token: _token,
   transactionsCount,
   currentPrice,
   priceUnavailable,

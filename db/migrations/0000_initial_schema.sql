@@ -1,6 +1,6 @@
 -- ============================================================
 -- CONSOLIDATED INITIAL SCHEMA
--- Equivalent to migrations 0001-0006
+-- Includes all schema changes up to Alchemy migration + legacy cleanup
 -- FOR USE IN NEW ENVIRONMENTS ONLY (test/dev)
 -- DO NOT use on production with existing data
 -- ============================================================
@@ -14,18 +14,22 @@ BEGIN;
 -- Extensions
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
--- ENUMs (must match db/enums.ts — drift validated by enums.test.ts)
+-- ENUMs (must match db/enums.ts)
 CREATE TYPE wallet_type AS ENUM ('ON_CHAIN', 'CEX');
 CREATE TYPE network AS ENUM ('ETH', 'BSC', 'CEX_BINANCE');
 CREATE TYPE transaction_type AS ENUM (
   'BUY', 'SELL', 'SWAP_IN', 'SWAP_OUT', 'TRANSFER_IN', 'TRANSFER_OUT',
   'FIAT_IN', 'FIAT_OUT'
 );
-CREATE TYPE transaction_source AS ENUM ('ETHERSCAN', 'BSCTRACE', 'BINANCE', 'MANUAL');
+-- NOTE: ETHERSCAN and BSCTRACE are preserved for historical rows.
+-- New on-chain transactions use 'ALCHEMY'.
+CREATE TYPE transaction_source AS ENUM ('ETHERSCAN', 'BSCTRACE', 'BINANCE', 'MANUAL', 'ALCHEMY');
 CREATE TYPE position_status AS ENUM ('OPEN', 'CLOSED');
 CREATE TYPE cost_source AS ENUM ('MARKET', 'INHERITED', 'MANUAL');
+-- NOTE: Legacy service_name values ETHERSCAN and BSCTRACE are removed.
+-- api_credentials has no historical rows depending on them.
 CREATE TYPE service_name AS ENUM (
-  'ETHERSCAN', 'BSCTRACE', 'BINANCE_API_KEY', 'BINANCE_SECRET_KEY', 'TELEGRAM'
+  'BINANCE_API_KEY', 'BINANCE_SECRET_KEY', 'TELEGRAM', 'ALCHEMY'
 );
 
 -- users
@@ -108,22 +112,23 @@ CREATE TABLE transactions (
   tx_log_index      INTEGER             NULL,
   cex_trade_id      BIGINT              NULL,
   cex_order_id      TEXT                NULL,
-  related_tx_id     UUID                NULL     REFERENCES transactions(id) ON DELETE SET NULL,
+  related_tx_id     UUID                NULL     REFERENCES transactions(id) ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED,
   sync_run_id       UUID                NULL,
   block_timestamp   TIMESTAMPTZ         NOT NULL,
   amount            NUMERIC(38,18)      NOT NULL,
   price_usd         NUMERIC(38,18)      NULL,
   cost_source       cost_source         NULL,
   commission_asset  VARCHAR(20)         NULL,
-  commission_amount NUMERIC(38,18)       NULL,
+  commission_amount NUMERIC(38,18)      NULL,
   from_address      TEXT                NULL,
   to_address        TEXT                NULL,
   created_at        TIMESTAMPTZ         NOT NULL DEFAULT now()
 );
 
+-- Unique constraint for on-chain transactions (includes ALCHEMY + legacy sources)
 CREATE UNIQUE INDEX transactions_unique_onchain
   ON transactions (tx_hash, tx_log_index)
-  WHERE tx_hash IS NOT NULL AND source IN ('ETHERSCAN', 'BSCTRACE');
+  WHERE tx_hash IS NOT NULL AND source IN ('ETHERSCAN', 'BSCTRACE', 'ALCHEMY');
 
 CREATE UNIQUE INDEX transactions_unique_cex
   ON transactions (cex_trade_id, tx_log_index)
@@ -180,8 +185,9 @@ COMMIT;
 
 -- ────────────────────────────────────────────────────────────────────────
 -- DOWN MIGRATION (full rollback — must be in separate transaction)
--- NOTE: FIAT_IN/FIAT_OUT enum values cannot be removed in PostgreSQL
--- without recreating the type (destructive). They will remain as unused.
+-- NOTE: PostgreSQL does not support removing ENUM values.
+-- Legacy values (ETHERSCAN, BSCTRACE) remain in transaction_source
+-- even if recreated without them.
 -- ────────────────────────────────────────────────────────────────────────
 
 BEGIN;

@@ -1,0 +1,40 @@
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "transfers": [
+      {
+        "uniqueId": "0xswap003:erc20:0",
+        "hash": "0xswap003",
+        "blockNum": "0x64",
+        "from": "0xabc123abc123abc123abc123abc123abc123abcd",
+        "to": "0x7a250d5630b4cf539739df2c5dacb4c659f2488d",
+        "value": 2000,
+        "asset": "USDC",
+        "category": "erc20",
+        "rawContract": {
+          "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+          "value": "0x1e8480",
+          "decimal": "0x6"
+        },
+        "metadata": { "blockTimestamp": "2025-04-15T12:34:56.000Z" }
+      },
+      {
+        "uniqueId": "0xswap003:external:0",
+        "hash": "0xswap003",
+        "blockNum": "0x64",
+        "from": "0x7a250d5630b4cf539739df2c5dacb4c659f2488d",
+        "to": "0xabc123abc123abc123abc123abc123abc123abcd",
+        "value": 1,
+        "asset": "ETH",
+        "category": "external",
+        "rawContract": {
+          "address": null,
+          "value": "0xde0b6b3a7640000",
+          "decimal": "0x12"
+        },
+        "metadata": { "blockTimestamp": "2025-04-15T12:34:56.000Z" }
+      }
+    ]
+  }
+}

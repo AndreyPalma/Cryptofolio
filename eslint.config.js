@@ -33,6 +33,8 @@ export default tseslint.config(
             "apps/frontend/vite.config.ts",
             "apps/frontend/tests/*.ts",
             "apps/frontend/tests/*.tsx",
+            "apps/backend/vitest.config.ts",
+            "apps/backend/vitest.workspace.ts",
             "db/*.ts",
             "tests/e2e/*.ts",
           ],
@@ -107,7 +109,14 @@ export default tseslint.config(
 
   // Test files and utility scripts — disable strict typed rules that don't apply
   {
-    files: ["db/**/*.ts", "tests/**/*.ts", "**/*.test.ts", "**/*.spec.ts", "**/*.test.tsx", "**/*.spec.tsx"],
+    files: [
+      "db/**/*.ts",
+      "tests/**/*.ts",
+      "**/*.test.ts",
+      "**/*.spec.ts",
+      "**/*.test.tsx",
+      "**/*.spec.tsx",
+    ],
     ...tseslint.configs.disableTypeChecked,
     rules: {
       ...tseslint.configs.disableTypeChecked.rules,

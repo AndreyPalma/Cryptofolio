@@ -25,72 +25,72 @@ Esta spec cubre la capa de servicio para transacciones manuales. Las validacione
 
 Archivos afectados:
 
-| Archivo | Acción |
-|---------|--------|
-| `apps/backend/src/services/transaction.ts` | NUEVO |
-| `apps/backend/src/types/transaction.ts` | NUEVO |
-| `apps/backend/src/services/__tests__/transaction.test.ts` | NUEVO |
+| Archivo                                                   | Acción |
+| --------------------------------------------------------- | ------ |
+| `apps/backend/src/services/transaction.ts`                | NUEVO  |
+| `apps/backend/src/types/transaction.ts`                   | NUEVO  |
+| `apps/backend/src/services/__tests__/transaction.test.ts` | NUEVO  |
 
-**No incluye:** sync automático (Etherscan/Binance), TRANSFER_IN cost resolution por `from_address` o Binance withdrawal, swap decomposition automática, precios de mercado en tiempo real. Estos son US-007+.
+**No incluye:** sync automático (Alchemy/Binance), TRANSFER_IN cost resolution por `from_address` o Binance withdrawal, swap decomposition automática, precios de mercado en tiempo real. Estos son US-007+.
 
 ---
 
 ## 2. Tipos de dominio
 
 ```typescript
-type TransactionType = 'BUY' | 'SELL' | 'SWAP_IN' | 'SWAP_OUT' | 'TRANSFER_IN' | 'TRANSFER_OUT'
-type TransactionSource = 'ETHERSCAN' | 'BSCTRACE' | 'BINANCE' | 'MANUAL'
-type CostSource = 'MARKET' | 'INHERITED' | 'MANUAL'
-type PositionStatus = 'OPEN' | 'CLOSED'
+type TransactionType = "BUY" | "SELL" | "SWAP_IN" | "SWAP_OUT" | "TRANSFER_IN" | "TRANSFER_OUT";
+type TransactionSource = "ALCHEMY" | "BINANCE" | "MANUAL";
+type CostSource = "MARKET" | "INHERITED" | "MANUAL";
+type PositionStatus = "OPEN" | "CLOSED";
 
 interface Transaction {
-  id: string                       // UUID
-  wallet_id: string
-  token_id: string
-  position_id: string | null
-  type: TransactionType
-  source: TransactionSource        // siempre 'MANUAL' en US-006
-  tx_hash: null                    // siempre null para MANUAL
-  cex_trade_id: null               // siempre null para MANUAL
-  block_timestamp: string          // ISO-8601
-  amount: string                   // NUMERIC como string
-  price_usd: string | null
-  cost_source: CostSource | null
-  created_at: string
+  id: string; // UUID
+  wallet_id: string;
+  token_id: string;
+  position_id: string | null;
+  type: TransactionType;
+  source: TransactionSource; // siempre 'MANUAL' en US-006
+  tx_hash: null; // siempre null para MANUAL
+  cex_trade_id: null; // siempre null para MANUAL
+  block_timestamp: string; // ISO-8601
+  amount: string; // NUMERIC como string
+  price_usd: string | null;
+  cost_source: CostSource | null;
+  created_at: string;
 }
 
 interface CreateTransactionInput {
-  wallet_id: string
-  token_id: string
-  type: TransactionType
-  amount: string
-  price_usd_at_time: string | null
-  block_timestamp: string          // ISO-8601
-  cost_source?: CostSource
+  wallet_id: string;
+  token_id: string;
+  type: TransactionType;
+  amount: string;
+  price_usd_at_time: string | null;
+  block_timestamp: string; // ISO-8601
+  cost_source?: CostSource;
 }
 
 interface CreateTransactionResult {
-  transaction_id: string
-  position_id: string
-  cycle_number: number
-  status: PositionStatus
-  wac: string
-  balance: string
+  transaction_id: string;
+  position_id: string;
+  cycle_number: number;
+  status: PositionStatus;
+  wac: string;
+  balance: string;
 }
 
 interface TransactionListQuery {
-  wallet_id: string
-  token_id?: string
-  position_id?: string
-  limit?: number                   // default 20, max 100
-  offset?: number                  // default 0
+  wallet_id: string;
+  token_id?: string;
+  position_id?: string;
+  limit?: number; // default 20, max 100
+  offset?: number; // default 0
 }
 
 interface TransactionListResult {
-  data: Transaction[]
-  total: number
-  limit: number
-  offset: number
+  data: Transaction[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 ```
 
@@ -222,15 +222,18 @@ Este escenario verifica la correcta implementación de INV-2 (ciclos de posició
 - GIVEN existe wallet `W1` y token `T1` sin historial previo
 
 **Paso 1 — Apertura ciclo 1:**
+
 - WHEN `createTransaction({ type: 'BUY', amount: '1.0', price_usd_at_time: '2000.00' })`
 - THEN `{ cycle_number: 1, status: 'OPEN', wac: '2000.00', balance: '1.0' }`
 
 **Paso 2 — SELL total (cierre ciclo 1):**
+
 - WHEN `createTransaction({ type: 'SELL', amount: '1.0', price_usd_at_time: '3000.00' })`
 - THEN `{ cycle_number: 1, status: 'CLOSED', balance: '0.0' }`
 - AND la posición en DB tiene `status='CLOSED'`, `closed_at IS NOT NULL`, `realized_pnl_usd` congelado
 
 **Paso 3 — BUY nuevo (apertura ciclo 2):**
+
 - WHEN `createTransaction({ type: 'BUY', amount: '0.5', price_usd_at_time: '2500.00' })`
 - THEN `{ cycle_number: 2, status: 'OPEN', wac: '2500.00', balance: '0.5' }`
 - AND el WAC del ciclo 2 es `2500.00`, no hereda el WAC del ciclo 1 (INV-2)

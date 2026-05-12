@@ -2,9 +2,9 @@
 // US-008-A
 // No DB imports — lives in the 'engine' vitest project.
 
-import type { NormalizedTx, NormalizedTokenTx } from './clients/on-chain-api.js';
-import type { TransactionType, TransactionSource } from '../db/types.js';
-import { SWAP_ROUTERS } from './constants/routers.js';
+import type { NormalizedTx, NormalizedTokenTx } from "./clients/on-chain-api.js";
+import type { TransactionType, TransactionSource } from "../db/types.js";
+import { SWAP_ROUTERS } from "./constants/routers.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -21,7 +21,7 @@ export interface TxGroup {
 /** A row that is ready to be persisted. Pre-classified and pre-decomposed.
  *  tx_log_index 0/1 for swaps, 0 for everything else. */
 export interface DecomposedTransaction {
-  readonly id: string;                      // uuid pre-generated so swap legs cross-link
+  readonly id: string; // uuid pre-generated so swap legs cross-link
   readonly type: TransactionType;
   readonly txHash: string;
   readonly txLogIndex: number;
@@ -31,17 +31,17 @@ export interface DecomposedTransaction {
   readonly blockTimestamp: Date;
   readonly fromAddress: string;
   readonly toAddress: string;
-  readonly tokenContract: string | null;    // null for native ETH/BNB
+  readonly tokenContract: string | null; // null for native ETH/BNB
   readonly tokenSymbol: string;
   readonly tokenDecimals: number;
-  readonly amount: string;                  // human-readable decimal (de-scaled)
-  readonly source: Extract<TransactionSource, 'ETHERSCAN' | 'BSCTRACE'>;
+  readonly amount: string; // human-readable decimal (de-scaled)
+  readonly source: Extract<TransactionSource, "ALCHEMY">;
 }
 
 // ─── Native pseudo-addresses (used when there is no token contract) ───────────
-const NATIVE_SYMBOL: Record<'ETH' | 'BSC', string> = {
-  ETH: 'ETH',
-  BSC: 'BNB',
+const NATIVE_SYMBOL: Record<"ETH" | "BSC", string> = {
+  ETH: "ETH",
+  BSC: "BNB",
 };
 
 // ─── groupByTxHash ────────────────────────────────────────────────────────────
@@ -88,16 +88,15 @@ export function groupByTxHash(
 export function classifyAndDecomposeTransaction(
   group: TxGroup,
   walletAddress: string,
-  network: 'ETH' | 'BSC',
+  network: "ETH" | "BSC",
+  source: Extract<TransactionSource, "ALCHEMY">,
 ): DecomposedTransaction[] {
   const wallet = walletAddress.toLowerCase();
   const routers = SWAP_ROUTERS[network];
-  const source: Extract<TransactionSource, 'ETHERSCAN' | 'BSCTRACE'> =
-    network === 'ETH' ? 'ETHERSCAN' : 'BSCTRACE';
   const baseTs = new Date(group.timeStamp * 1000);
 
   // Skip failed transactions
-  if (group.normalTx?.isError === '1') {
+  if (group.normalTx?.isError === "1") {
     return [];
   }
 
@@ -123,7 +122,7 @@ export function classifyAndDecomposeTransaction(
   }
 
   // ── Native ETH/BNB transfer ──────────────────────────────────────────────────
-  if (group.normalTx && group.normalTx.value !== '0') {
+  if (group.normalTx && group.normalTx.value !== "0") {
     return [decodeNativeLeg(group.normalTx, wallet, network, source, baseTs)];
   }
 
@@ -135,8 +134,8 @@ export function classifyAndDecomposeTransaction(
 function decomposeSwap(
   group: TxGroup,
   wallet: string,
-  network: 'ETH' | 'BSC',
-  source: Extract<TransactionSource, 'ETHERSCAN' | 'BSCTRACE'>,
+  network: "ETH" | "BSC",
+  source: Extract<TransactionSource, "ALCHEMY">,
   baseTs: Date,
 ): DecomposedTransaction[] {
   // Generate two UUIDs upfront so legs can cross-link
@@ -151,12 +150,8 @@ function decomposeSwap(
     const inLeg = sorted[sorted.length - 1];
     if (!outLeg || !inLeg) return [];
 
-    const out = makeDecomposedTokenTx(
-      outLeg, 'SWAP_OUT', outId, 0, inId, source, baseTs,
-    );
-    const inT = makeDecomposedTokenTx(
-      inLeg, 'SWAP_IN', inId, 1, outId, source, baseTs,
-    );
+    const out = makeDecomposedTokenTx(outLeg, "SWAP_OUT", outId, 0, inId, source, baseTs);
+    const inT = makeDecomposedTokenTx(inLeg, "SWAP_IN", inId, 1, outId, source, baseTs);
     return [out, inT];
   }
 
@@ -173,7 +168,7 @@ function decomposeSwap(
       const amountOut = scaleDown(nTx.value, 18); // native = 18 decimals
       const out: DecomposedTransaction = {
         id: outId,
-        type: 'SWAP_OUT',
+        type: "SWAP_OUT",
         txHash: nTx.txHash,
         txLogIndex: 0,
         relatedTxId: inId,
@@ -188,16 +183,16 @@ function decomposeSwap(
         amount: amountOut,
         source,
       };
-      const inT = makeDecomposedTokenTx(tTx, 'SWAP_IN', inId, 1, outId, source, baseTs);
+      const inT = makeDecomposedTokenTx(tTx, "SWAP_IN", inId, 1, outId, source, baseTs);
       return [out, inT];
     }
 
     // SWAP_IN = native received, SWAP_OUT = token sent
     const amountIn = scaleDown(nTx.value, 18);
-    const out = makeDecomposedTokenTx(tTx, 'SWAP_OUT', outId, 0, inId, source, baseTs);
+    const out = makeDecomposedTokenTx(tTx, "SWAP_OUT", outId, 0, inId, source, baseTs);
     const inT: DecomposedTransaction = {
       id: inId,
-      type: 'SWAP_IN',
+      type: "SWAP_IN",
       txHash: nTx.txHash,
       txLogIndex: 1,
       relatedTxId: outId,
@@ -227,7 +222,7 @@ function makeDecomposedTokenTx(
   id: string,
   txLogIndex: number,
   relatedTxId: string | null,
-  source: Extract<TransactionSource, 'ETHERSCAN' | 'BSCTRACE'>,
+  source: Extract<TransactionSource, "ALCHEMY">,
   baseTs: Date,
 ): DecomposedTransaction {
   return {
@@ -252,11 +247,11 @@ function makeDecomposedTokenTx(
 function decodeTokenLeg(
   tt: NormalizedTokenTx,
   wallet: string,
-  source: Extract<TransactionSource, 'ETHERSCAN' | 'BSCTRACE'>,
+  source: Extract<TransactionSource, "ALCHEMY">,
   baseTs: Date,
 ): DecomposedTransaction {
   const isOutbound = tt.from.toLowerCase() === wallet;
-  const type: TransactionType = isOutbound ? 'SELL' : 'BUY';
+  const type: TransactionType = isOutbound ? "SELL" : "BUY";
 
   return makeDecomposedTokenTx(tt, type, crypto.randomUUID(), 0, null, source, baseTs);
 }
@@ -264,12 +259,12 @@ function decodeTokenLeg(
 function decodeNativeLeg(
   tx: NormalizedTx,
   wallet: string,
-  network: 'ETH' | 'BSC',
-  source: Extract<TransactionSource, 'ETHERSCAN' | 'BSCTRACE'>,
+  network: "ETH" | "BSC",
+  source: Extract<TransactionSource, "ALCHEMY">,
   baseTs: Date,
 ): DecomposedTransaction {
   const isOutbound = tx.from.toLowerCase() === wallet;
-  const type: TransactionType = isOutbound ? 'TRANSFER_OUT' : 'TRANSFER_IN';
+  const type: TransactionType = isOutbound ? "TRANSFER_OUT" : "TRANSFER_IN";
 
   return {
     id: crypto.randomUUID(),
@@ -301,6 +296,6 @@ function scaleDown(raw: string, decimals: number): string {
   const whole = n / divisor;
   const frac = n % divisor;
   if (frac === 0n) return whole.toString();
-  const fracStr = frac.toString().padStart(decimals, '0').replace(/0+$/, '');
+  const fracStr = frac.toString().padStart(decimals, "0").replace(/0+$/, "");
   return `${whole.toString()}.${fracStr}`;
 }

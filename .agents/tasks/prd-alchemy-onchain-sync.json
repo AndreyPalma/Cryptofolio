@@ -296,7 +296,7 @@
     {
       "id": "US-007",
       "title": "Tests del módulo de sincronización on-chain — escenarios documentados",
-      "status": "open",
+      "status": "completed",
       "dependsOn": ["US-006"],
       "description": "Como mantenedor, quiero un set exhaustivo de tests del módulo de sincronización (cliente Alchemy, OnChainSyncService, classify regresión, cost-resolver bajo source='ALCHEMY' y E2E) con escenarios documentados uno a uno, agrupados por: cliente unitario, primera sincronización (happy paths), re-sincronizaciones (idempotencia), errores y casos límite, cálculos de WAC/cycles/cost-resolver, y E2E completos — para asegurar que ninguna sincronización (primera ni posterior) produce errores críticos ni malos cálculos.\n\nLos tests viven en apps/backend/tests/ siguiendo el patrón existente: nombres sync-alchemy-*.test.ts entran en el vitest project 'sync'; tests de classify viven en apps/backend/src/sync/classify.test.ts (project 'engine'); E2E en tests/e2e/sync-alchemy-*.e2e.test.ts (project 'e2e', single-fork). Cada escenario tiene un identificador único (A-N, B-N, etc.) referenciado en los nombres de los tests vitest para trazabilidad.\n\nFixtures de respuestas Alchemy sanitizadas viven en apps/backend/tests/fixtures/alchemy/ con un README.md describiendo cada fixture.",
       "acceptanceCriteria": [

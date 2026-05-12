@@ -11,6 +11,7 @@ const SOURCE_CONFIG = {
   BSCTRACE: { label: "BSCScan", className: "bg-yellow-900 text-yellow-300" },
   BINANCE: { label: "Binance", className: "bg-amber-900 text-amber-300" },
   MANUAL: { label: "Manual", className: "bg-gray-700 text-gray-400" },
+  ALCHEMY: { label: "Alchemy", className: "bg-indigo-900 text-indigo-300" },
 } as const satisfies Record<TransactionSource, { label: string; className: string }>;
 
 export function SourceBadge({ source, tooltip }: SourceBadgeProps) {

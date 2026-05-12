@@ -9,8 +9,7 @@ export const EnvSchema = z.object({
   ENCRYPTION_KEY: z
     .string()
     .length(64, { error: "ENCRYPTION_KEY must be 64 hex chars (32 bytes)" }),
-  ETHERSCAN_API_KEY: z.string().min(1),
-  BSCTRACE_API_KEY: z.string().min(1),
+  ALCHEMY_API_KEY: z.string().min(1),
   BINANCE_API_KEY: z.string().min(1),
   // The correct name is BINANCE_SECRET_KEY — the legacy name from v4 was different and is a known bug
   BINANCE_SECRET_KEY: z.string().min(1),

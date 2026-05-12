@@ -4,11 +4,7 @@
 
 import type { Pool } from "pg";
 import type { PriceService } from "./price.js";
-import type {
-  OnChainApiClient,
-  NormalizedTx,
-  NormalizedTokenTx,
-} from "../sync/clients/on-chain-api.js";
+import type { OnChainApiClient } from "../sync/clients/on-chain-api.js";
 import type { DecomposedTransaction } from "../sync/classify.js";
 import type { SyncResult } from "../schemas/sync.js";
 import type { PositionState, ProcessTransactionInput } from "../position-engine/index.js";
@@ -32,7 +28,6 @@ const NATIVE_PSEUDO_ADDRESS: Record<"ETH" | "BSC", string> = {
   BSC: "0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c",
 };
 
-const PAGE_SIZE = 1000;
 const MAX_BLOCK = 99_999_999;
 
 export const ON_CHAIN_PERSIST_BATCH_SIZE = 500;
@@ -42,8 +37,7 @@ export const ON_CHAIN_PERSIST_BATCH_SIZE = 500;
 export interface OnChainSyncDeps {
   readonly pool: Pool;
   readonly priceService: PriceService;
-  readonly etherscanClient: OnChainApiClient;
-  readonly bsctraceClient: OnChainApiClient;
+  readonly onChainClientFactory: (network: "ETH" | "BSC") => OnChainApiClient;
 }
 
 interface WalletRow {
@@ -87,7 +81,7 @@ export class OnChainSyncService {
     }
 
     const network = wallet.network as "ETH" | "BSC";
-    const apiClient = network === "ETH" ? this.deps.etherscanClient : this.deps.bsctraceClient;
+    const apiClient = this.deps.onChainClientFactory(network);
 
     // Fail fast if API key is missing — before any network call
     apiClient.assertConfigured();
@@ -106,17 +100,21 @@ export class OnChainSyncService {
     try {
       // ── Step 1: fetch_normal ──
       emit?.({ step: "fetch_normal", status: "running" });
-      const normalTxs = await this.paginateNormal(
-        apiClient,
+      const normalTxs = await apiClient.fetchNormalTransactions(
         walletAddress,
-        wallet.last_synced_block,
+        wallet.last_synced_block + 1,
+        MAX_BLOCK,
       );
       emit?.({ step: "fetch_normal", status: "done", synced: normalTxs.length, skipped: 0 });
       this.checkAborted(signal);
 
       // ── Step 2: fetch_tokens ──
       emit?.({ step: "fetch_tokens", status: "running" });
-      const tokenTxs = await this.paginateToken(apiClient, walletAddress, wallet.last_synced_block);
+      const tokenTxs = await apiClient.fetchTokenTransactions(
+        walletAddress,
+        wallet.last_synced_block + 1,
+        MAX_BLOCK,
+      );
       emit?.({ step: "fetch_tokens", status: "done", synced: tokenTxs.length, skipped: 0 });
       this.checkAborted(signal);
 
@@ -124,7 +122,7 @@ export class OnChainSyncService {
       emit?.({ step: "classify", status: "running" });
       const groups = groupByTxHash(normalTxs, tokenTxs);
       const decomposed: DecomposedTransaction[] = groups.flatMap((g) =>
-        classifyAndDecomposeTransaction(g, walletAddress, network),
+        classifyAndDecomposeTransaction(g, walletAddress, network, "ALCHEMY"),
       );
 
       // CRITICAL: sort by (blockNumber, transactionIndex, txLogIndex) ASC
@@ -198,6 +196,10 @@ export class OnChainSyncService {
     };
     const newTransactionIds: string[] = [];
 
+    // Track cross-references to resolve in a second pass after all rows
+    // are inserted. SWAP_OUT ↔ SWAP_IN reference each other via FK.
+    const pendingRelatedUpdates: { txId: string; relatedTxId: string }[] = [];
+
     emit?.({ step: "persist", status: "running" });
 
     for (let i = 0; i < decomposed.length; i += ON_CHAIN_PERSIST_BATCH_SIZE) {
@@ -264,6 +266,9 @@ export class OnChainSyncService {
           counters.synced++;
           newTransactionIds.push(tx.id);
           if (tx.type === "SWAP_OUT") counters.swapsDecomposed++;
+          if (tx.relatedTxId) {
+            pendingRelatedUpdates.push({ txId: tx.id, relatedTxId: tx.relatedTxId });
+          }
         } else {
           counters.skipped++;
         }
@@ -272,6 +277,20 @@ export class OnChainSyncService {
       const done = Math.min(i + batch.length, decomposed.length);
       emit?.({ type: "batchProgress", done, total: decomposed.length });
       this.checkAborted(signal);
+    }
+
+    // Phase 2: resolve cross-references for newly inserted SWAP legs.
+    // Only link if BOTH legs were inserted in this batch. If a leg already
+    // existed (idempotency / ON CONFLICT DO NOTHING), skip to avoid FK
+    // violation on a non-existent related_tx_id.
+    const insertedIds = new Set(newTransactionIds);
+    for (const { txId, relatedTxId } of pendingRelatedUpdates) {
+      if (insertedIds.has(relatedTxId)) {
+        await this.deps.pool.query("UPDATE transactions SET related_tx_id = $1 WHERE id = $2", [
+          relatedTxId,
+          txId,
+        ]);
+      }
     }
 
     emit?.({ step: "persist", status: "done", synced: counters.synced, skipped: 0 });
@@ -293,46 +312,6 @@ export class OnChainSyncService {
     }
 
     return wallet;
-  }
-
-  // ─── Private: pagination ──────────────────────────────────────────────────
-
-  private async paginateNormal(
-    client: OnChainApiClient,
-    address: string,
-    fromBlock: number,
-  ): Promise<NormalizedTx[]> {
-    const all: NormalizedTx[] = [];
-    let startBlock = fromBlock + 1; // fromBlock is inclusive of "already done"
-
-    for (;;) {
-      const batch = await client.fetchNormalTransactions(address, startBlock, MAX_BLOCK);
-      all.push(...batch);
-      if (batch.length < PAGE_SIZE) break;
-      const lastNormal = batch[batch.length - 1];
-      if (!lastNormal) break;
-      startBlock = lastNormal.blockNumber - 1; // overlap by 1 to avoid gaps; ON CONFLICT handles dups
-    }
-    return all;
-  }
-
-  private async paginateToken(
-    client: OnChainApiClient,
-    address: string,
-    fromBlock: number,
-  ): Promise<NormalizedTokenTx[]> {
-    const all: NormalizedTokenTx[] = [];
-    let startBlock = fromBlock + 1;
-
-    for (;;) {
-      const batch = await client.fetchTokenTransactions(address, startBlock, MAX_BLOCK);
-      all.push(...batch);
-      if (batch.length < PAGE_SIZE) break;
-      const lastToken = batch[batch.length - 1];
-      if (!lastToken) break;
-      startBlock = lastToken.blockNumber - 1;
-    }
-    return all;
   }
 
   // ─── Private: ensureToken ─────────────────────────────────────────────────
@@ -496,7 +475,7 @@ export class OnChainSyncService {
         tx.source,
         tx.txHash,
         tx.txLogIndex,
-        tx.relatedTxId ?? null,
+        null, // related_tx_id resolved in phase 2 to avoid FK violations on SWAPs
         tx.blockTimestamp,
         tx.amount,
         priceUsd,

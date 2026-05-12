@@ -20,9 +20,7 @@ services:
         sync: false
       - key: ENCRYPTION_KEY
         sync: false
-      - key: ETHERSCAN_API_KEY
-        sync: false
-      - key: BSCTRACE_API_KEY
+      - key: ALCHEMY_API_KEY
         sync: false
       - key: BINANCE_API_KEY
         sync: false

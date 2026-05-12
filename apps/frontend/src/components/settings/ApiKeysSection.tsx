@@ -21,17 +21,20 @@ function TestResultBadge({ state }: { state: ApiKeyTestState }) {
     const parts: string[] = ["Connected"];
     if (state.meta?.latencyMs !== undefined) parts.push(`${String(state.meta.latencyMs)}ms`);
     if (state.meta?.assetCount !== undefined) parts.push(`${String(state.meta.assetCount)} assets`);
-    return (
-      <span className="text-xs text-green-400">{parts.join(" · ")}</span>
-    );
+    return <span className="text-xs text-green-400">{parts.join(" · ")}</span>;
   }
   // failed
-  return (
-    <span className="text-xs text-red-400">Failed: {state.reason}</span>
-  );
+  return <span className="text-xs text-red-400">Failed: {state.reason}</span>;
 }
 
-function ApiKeyRow({ label, isConfigured, testState, onTest, testDisabled, isGrouped }: ApiKeyRowProps) {
+function ApiKeyRow({
+  label,
+  isConfigured,
+  testState,
+  onTest,
+  testDisabled,
+  isGrouped,
+}: ApiKeyRowProps) {
   const isTesting = testState.status === "testing";
 
   return (
@@ -88,23 +91,17 @@ export function ApiKeysSection() {
     <div className="rounded-xl bg-gray-900 p-6">
       <h2 className="mb-4 text-lg font-semibold text-white">API Keys</h2>
       <p className="mb-4 text-xs text-gray-500">
-        API keys are configured via environment variables on the server. Values are never exposed here.
+        API keys are configured via environment variables on the server. Values are never exposed
+        here.
       </p>
 
       <div>
         <ApiKeyRow
-          label="ETHERSCAN_API_KEY"
-          isConfigured={presence.ETHERSCAN_API_KEY}
-          testState={states.etherscan}
-          onTest={() => void test("etherscan")}
-          testDisabled={!presence.ETHERSCAN_API_KEY}
-        />
-        <ApiKeyRow
-          label="BSCTRACE_API_KEY"
-          isConfigured={presence.BSCTRACE_API_KEY}
-          testState={states.bsctrace}
-          onTest={() => void test("bsctrace")}
-          testDisabled={!presence.BSCTRACE_API_KEY}
+          label="ALCHEMY_API_KEY"
+          isConfigured={presence.ALCHEMY_API_KEY}
+          testState={states.alchemy}
+          onTest={() => void test("alchemy")}
+          testDisabled={!presence.ALCHEMY_API_KEY}
         />
 
         {/* Binance group — API key + Secret share one Test button */}
@@ -124,7 +121,9 @@ export function ApiKeysSection() {
                   presence.BINANCE_API_KEY ? "placeholder-green-500" : "placeholder-gray-500",
                 )}
               />
-              <span className="sr-only">{presence.BINANCE_API_KEY ? "Configured" : "Not configured"}</span>
+              <span className="sr-only">
+                {presence.BINANCE_API_KEY ? "Configured" : "Not configured"}
+              </span>
             </div>
             <button
               type="button"
@@ -147,13 +146,17 @@ export function ApiKeysSection() {
                 type="password"
                 readOnly
                 value=""
-                placeholder={presence.BINANCE_SECRET_KEY ? "Configured in .env ✓" : "Not configured"}
+                placeholder={
+                  presence.BINANCE_SECRET_KEY ? "Configured in .env ✓" : "Not configured"
+                }
                 className={cn(
                   "w-full rounded bg-gray-800 px-3 py-1.5 text-sm placeholder-opacity-100 focus:outline-none",
                   presence.BINANCE_SECRET_KEY ? "placeholder-green-500" : "placeholder-gray-500",
                 )}
               />
-              <span className="sr-only">{presence.BINANCE_SECRET_KEY ? "Configured" : "Not configured"}</span>
+              <span className="sr-only">
+                {presence.BINANCE_SECRET_KEY ? "Configured" : "Not configured"}
+              </span>
             </div>
             {/* No individual test button — grouped with BINANCE_API_KEY above */}
             <div className="w-28" />

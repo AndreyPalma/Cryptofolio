@@ -110,7 +110,7 @@ El backend MUST cargar `.env` vía `node --env-file=.env` y validar con Zod `Env
 
 #### Scenario: .env válido arranca el server
 
-- GIVEN `.env` que cumple todos los campos requeridos (`DATABASE_URL`, `JWT_SECRET`, `ENCRYPTION_KEY`, `ETHERSCAN_API_KEY`, `BSCTRACE_API_KEY`, `BINANCE_API_KEY`, `BINANCE_SECRET_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `APP_PASSWORD`, `PORT`)
+- GIVEN `.env` que cumple todos los campos requeridos (`DATABASE_URL`, `JWT_SECRET`, `ENCRYPTION_KEY`, `ALCHEMY_API_KEY`, `BINANCE_API_KEY`, `BINANCE_SECRET_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `APP_PASSWORD`, `PORT`)
 - WHEN el backend arranca con `node --env-file=.env ...`
 - THEN `EnvSchema.parse(process.env)` MUST resolver sin lanzar
 - AND el server MUST escuchar en el `PORT` configurado

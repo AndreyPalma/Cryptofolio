@@ -5,7 +5,7 @@ export type TokenNetwork = (typeof TOKEN_NETWORKS)[number];
 export const WALLET_TYPES = ["ON_CHAIN", "CEX"] as const;
 export type WalletType = (typeof WALLET_TYPES)[number];
 
-export const API_SERVICES = ["etherscan", "bsctrace", "binance"] as const;
+export const API_SERVICES = ["binance", "alchemy"] as const;
 export type ApiService = (typeof API_SERVICES)[number];
 
 // ── Wallet ────────────────────────────────────────────────────────────────────
@@ -61,10 +61,9 @@ export type SyncState =
 
 // ── API keys ──────────────────────────────────────────────────────────────────
 export interface ApiKeysPresence {
-  ETHERSCAN_API_KEY: boolean;
-  BSCTRACE_API_KEY: boolean;
   BINANCE_API_KEY: boolean;
   BINANCE_SECRET_KEY: boolean;
+  ALCHEMY_API_KEY: boolean;
 }
 
 export type ApiKeyTestState =
@@ -104,12 +103,12 @@ export interface BalanceValidationData {
 }
 
 // ── SSE sync stream types (US-015) ────────────────────────────────────────────
-export const SYNC_STEPS_CEX = ['fiat', 'deposits', 'withdrawals', 'converts', 'trades'] as const;
-export const SYNC_STEPS_ON_CHAIN = ['fetch_normal', 'fetch_tokens', 'classify', 'persist'] as const;
+export const SYNC_STEPS_CEX = ["fiat", "deposits", "withdrawals", "converts", "trades"] as const;
+export const SYNC_STEPS_ON_CHAIN = ["fetch_normal", "fetch_tokens", "classify", "persist"] as const;
 export type CexSyncStepName = (typeof SYNC_STEPS_CEX)[number];
 export type OnChainSyncStepName = (typeof SYNC_STEPS_ON_CHAIN)[number];
 export type SyncStepName = CexSyncStepName | OnChainSyncStepName;
-export type StepStatus = 'pending' | 'running' | 'done' | 'skipped' | 'error';
+export type StepStatus = "pending" | "running" | "done" | "skipped" | "error";
 
 export interface StepState {
   name: SyncStepName;
@@ -121,4 +120,4 @@ export interface StepState {
   errorMessage?: string;
 }
 
-export type SyncStreamStatus = 'idle' | 'connecting' | 'syncing' | 'done' | 'error' | 'cancelled';
+export type SyncStreamStatus = "idle" | "connecting" | "syncing" | "done" | "error" | "cancelled";

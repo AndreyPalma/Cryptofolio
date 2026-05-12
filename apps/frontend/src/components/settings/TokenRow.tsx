@@ -6,9 +6,9 @@ import type { TransactionSource } from "../../types/token-detail";
 function networkToSource(network: TokenNetwork): TransactionSource {
   switch (network) {
     case "ETH":
-      return "ETHERSCAN";
+      return "ALCHEMY";
     case "BSC":
-      return "BSCTRACE";
+      return "ALCHEMY";
     case "CEX_BINANCE":
       return "BINANCE";
   }
@@ -26,9 +26,7 @@ interface TokenRowProps {
 }
 
 export function TokenRow({ token, onUpdate }: TokenRowProps) {
-  const [draftTargetPrice, setDraftTargetPrice] = useState<string>(
-    token.targetExitPrice ?? "",
-  );
+  const [draftTargetPrice, setDraftTargetPrice] = useState<string>(token.targetExitPrice ?? "");
   const [savingHidden, setSavingHidden] = useState(false);
   const [savingTarget, setSavingTarget] = useState(false);
 
@@ -69,9 +67,7 @@ export function TokenRow({ token, onUpdate }: TokenRowProps) {
       <td className="py-3 pr-4">
         <div className="flex items-center gap-2">
           <span className="font-medium text-white text-sm">{token.symbol}</span>
-          {token.name && (
-            <span className="text-xs text-gray-400">{token.name}</span>
-          )}
+          {token.name && <span className="text-xs text-gray-400">{token.name}</span>}
         </div>
       </td>
       <td className="py-3 pr-4">
@@ -94,7 +90,9 @@ export function TokenRow({ token, onUpdate }: TokenRowProps) {
           <input
             type="text"
             value={draftTargetPrice}
-            onChange={(e) => { setDraftTargetPrice(e.target.value); }}
+            onChange={(e) => {
+              setDraftTargetPrice(e.target.value);
+            }}
             placeholder="—"
             className="w-24 rounded bg-gray-800 px-2 py-1 text-xs text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           />

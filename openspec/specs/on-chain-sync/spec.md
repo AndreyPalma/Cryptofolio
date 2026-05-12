@@ -6,7 +6,7 @@
 
 ## Scope
 
-Sync on-chain transaction history for ETH (Etherscan) and BSC (BSCTrace) wallets into the Cryptofolio DB, computing WAC/positions via the existing PositionEngine.
+Sync on-chain transaction history for ETH and BSC wallets via Alchemy into the Cryptofolio DB, computing WAC/positions via the existing PositionEngine.
 
 ## Endpoint
 
@@ -17,7 +17,7 @@ Sync on-chain transaction history for ETH (Etherscan) and BSC (BSCTrace) wallets
 - Only `ON_CHAIN` wallets with `network ∈ {ETH, BSC}` are supported. CEX wallets → 400.
 - Missing API key → 400 `API_KEY_MISSING` before any network call.
 - Wallet must belong to the authenticated user → 404 otherwise.
-- Pagination: re-query while batch size === 1000, with `startBlock = lastBlock - 1`.
+- Pagination: Alchemy native `pageKey`, one call per address and category, two calls (`fromAddress`/`toAddress`) per method, merge and dedupe by `uniqueId`.
 - All DB writes for a sync run are in a single atomic transaction.
 - Idempotent: `INSERT ... ON CONFLICT (tx_hash, tx_log_index) DO NOTHING`.
 - External API failures → 502 `EXTERNAL_API_ERROR` (API key never exposed in response/logs).
@@ -70,14 +70,14 @@ Manual `BEGIN/COMMIT/ROLLBACK` is eliminated. Cursor advances only on `commitSuc
 
 ## Transaction classification
 
-| Pattern | Types emitted |
-|---------|--------------|
-| Native ETH/BNB to wallet | TRANSFER_IN |
-| Native ETH/BNB from wallet | TRANSFER_OUT |
-| Token tx to wallet (non-router counterparty) | TRANSFER_IN or BUY |
-| Token tx from wallet (non-router counterparty) | TRANSFER_OUT or SELL |
-| normalTx.to ∈ SWAP_ROUTERS + tokenTx(s) | SWAP_OUT (logIndex=0) + SWAP_IN (logIndex=1) |
-| isError === '1' | [] (skip) |
+| Pattern                                        | Types emitted                                |
+| ---------------------------------------------- | -------------------------------------------- |
+| Native ETH/BNB to wallet                       | TRANSFER_IN                                  |
+| Native ETH/BNB from wallet                     | TRANSFER_OUT                                 |
+| Token tx to wallet (non-router counterparty)   | TRANSFER_IN or BUY                           |
+| Token tx from wallet (non-router counterparty) | TRANSFER_OUT or SELL                         |
+| normalTx.to ∈ SWAP_ROUTERS + tokenTx(s)        | SWAP_OUT (logIndex=0) + SWAP_IN (logIndex=1) |
+| isError === '1'                                | [] (skip)                                    |
 
 Swap pairs are cross-linked via `related_tx_id` (both directions).
 
@@ -94,8 +94,10 @@ Swap pairs are cross-linked via `related_tx_id` (both directions).
 ## Implementation files
 
 - `apps/backend/src/sync/clients/on-chain-api.ts` — OnChainApiClient interface + normalized types
-- `apps/backend/src/sync/clients/etherscan.ts` — EtherscanClient
-- `apps/backend/src/sync/clients/bsctrace.ts` — BSCTraceClient
+- `apps/backend/src/sync/clients/alchemy.ts` — AlchemyClient (replaces Etherscan/BSCTrace)
+
+> **Historical compatibility note**: rows previously synced from `ETHERSCAN`/`BSCTRACE` remain preserved in the DB with their original `source` value.
+
 - `apps/backend/src/sync/constants/routers.ts` — SWAP_ROUTERS ReadonlySet
 - `apps/backend/src/sync/classify.ts` — groupByTxHash + classifyAndDecomposeTransaction
 - `apps/backend/src/sync/cost-resolver.ts` — resolveTransferCost

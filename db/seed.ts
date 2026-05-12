@@ -74,7 +74,7 @@ async function main(): Promise<void> {
       `INSERT INTO transactions
         (wallet_id, token_id, position_id, type, source, tx_hash, tx_log_index,
          block_timestamp, amount, price_usd, cost_source)
-       VALUES ($1, $2, $3, 'BUY', 'ETHERSCAN',
+        VALUES ($1, $2, $3, 'BUY', 'ALCHEMY',
                '0xbuy0000000000000000000000000000000000000000000000000000000000aa', 0,
                $4, 100, 1.00, 'MARKET')`,
       [ethWallet, usdcEth, posId, NOW],
@@ -84,7 +84,7 @@ async function main(): Promise<void> {
       `INSERT INTO transactions
         (wallet_id, token_id, position_id, type, source, tx_hash, tx_log_index,
          block_timestamp, amount, price_usd, cost_source)
-       VALUES ($1, $2, $3, 'SELL', 'ETHERSCAN',
+        VALUES ($1, $2, $3, 'SELL', 'ALCHEMY',
                '0xsell000000000000000000000000000000000000000000000000000000000bb', 0,
                $4, 25, 1.01, 'MARKET')`,
       [ethWallet, usdcEth, posId, NOW],

@@ -22,6 +22,7 @@ export const TRANSACTION_SOURCE = {
   BSCTRACE: "BSCTRACE",
   BINANCE: "BINANCE",
   MANUAL: "MANUAL",
+  ALCHEMY: "ALCHEMY",
 } as const;
 export type TransactionSource = (typeof TRANSACTION_SOURCE)[keyof typeof TRANSACTION_SOURCE];
 
